@@ -1,5 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.18362.0</TargetFramework>
+    <PublishTrimmed>false</PublishTrimmed>
     <OutputType>WinExe</OutputType>
     <AssemblyName>EXPC-Uninstaller</AssemblyName>
     <RootNamespace>ExpcUninstaller</RootNamespace>

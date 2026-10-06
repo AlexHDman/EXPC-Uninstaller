@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 
 namespace ExpcUninstaller;
@@ -31,6 +32,8 @@ internal static class Measurements
             {
                 utc = DateTime.UtcNow,
                 pid = Environment.ProcessId,
+                runtime = RuntimeInformation.FrameworkDescription,
+                runtimeDirectory = RuntimeEnvironment.GetRuntimeDirectory(),
                 stage,
                 elapsedMs = Math.Round(SinceProcessStart, 2),
                 operationMs = Math.Round(operationMs, 2),

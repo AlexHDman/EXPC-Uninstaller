@@ -1,3 +1,14 @@
+## EXPC-Uninstaller fork
+
+Оболочка EXPC: .NET 10, SDK **10.0.401** (без preview), WinForms, Glass Teal EXPC-002. [Сборка, portable ZIP и проверка чистой Windows](docs/EXPC_PHASE02A.md).
+
+```console
+dotnet msbuild scripts/Build-ExpcPortable.proj -t:Package
+dotnet msbuild scripts/Build-ExpcPortable.proj -t:Extract
+```
+
+Ниже сохранена исходная документация BCU; её требования .NET 8 относятся к старым проектам BCU.
+
 [![Donate](https://img.shields.io/badge/donate-paypal-brightgreen.svg)](http://klocmansoftware.weebly.com/donate.html)
 [![GitHub release](https://img.shields.io/github/release/klocman/Bulk-Crap-Uninstaller.svg)](https://github.com/Klocman/Bulk-Crap-Uninstaller/releases)
 [![license](https://img.shields.io/github/license/klocman/Bulk-Crap-Uninstaller.svg)](https://github.com/Klocman/Bulk-Crap-Uninstaller/blob/master/Licence.txt)

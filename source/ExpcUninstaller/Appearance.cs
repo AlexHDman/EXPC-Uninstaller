@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Drawing.Drawing2D;
 
 namespace ExpcUninstaller;
@@ -81,9 +82,13 @@ internal enum Glyph { Delete, Refresh, Update, Theme, Language, Programs, Store,
 
 internal sealed class GlassButton : Control
 {
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public Glyph Glyph { get; init; }
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool ActionEnabled { get; set; } = true;
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool Selected { get; set; }
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
     public bool CaptionButton { get; init; }
     private bool _hover;
 
