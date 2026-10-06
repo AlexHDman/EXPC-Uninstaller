@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>EXPC-Uninstaller</AssemblyName>
+    <RootNamespace>ExpcUninstaller</RootNamespace>
+    <Product>EXPC Uninstaller</Product>
+    <AssemblyTitle>EXPC Uninstaller — EXPC-002</AssemblyTitle>
+    <ApplicationIcon>..\..\assets\icon.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <OutputPath>..\..\bin\EXPC\$(Configuration)\$(Platform)\</OutputPath>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GenerateSatelliteAssembliesForCore>true</GenerateSatelliteAssembliesForCore>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="..\HelperTools\*.cs" />
+    <ProjectReference Include="..\KlocTools\KlocTools.csproj" />
+    <ProjectReference Include="..\StoreAppHelper\StoreAppHelper.csproj" />
+    <EmbeddedResource Include="..\..\assets\icon.ico" LogicalName="Expc.Icon.ico" />
+    <Content Include="..\..\Licence.txt;..\..\NOTICE" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <InternalsVisibleTo Include="ExpcUninstallerTests" />
+  </ItemGroup>
+</Project>
