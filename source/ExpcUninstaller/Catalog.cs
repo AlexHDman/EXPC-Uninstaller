@@ -5,12 +5,18 @@ using Microsoft.Win32;
 namespace ExpcUninstaller;
 
 internal sealed record AppEntry(string Id, string Name, string Version, long? SizeBytes,
-    DateTime? Installed, string? IconPath, string Publisher, bool Store = false);
+    DateTime? Installed, string? IconPath, string Publisher, bool Store = false)
+{
+    public RegistryMetadata? Metadata { get; init; }
+    public string[] Sources { get; init; } = [];
+    public bool Protected { get; init; }
+    public string? StoreLocation { get; init; }
+}
 
 // No discovery pipeline, MSI queries, startup enumeration, directory traversal or writes.
 internal sealed record RegistryMetadata(string KeyName, string Name, string Version, string Publisher,
     string Location, string Uninstall, string QuietUninstall, string Icon, string Date,
-    long? SizeKb, string SystemComponent, string NoRemove);
+    long? SizeKb, string SystemComponent, string NoRemove, string Website = "", string WindowsInstaller = "");
 
 internal sealed record CatalogResult(List<AppEntry> Entries, int ReadErrors, int Duplicates = 0);
 
@@ -47,7 +53,7 @@ internal static class FastCatalog
                                 Text("DisplayVersion"), Text("Publisher"), Text("InstallLocation"),
                                 Text("UninstallString"), Text("QuietUninstallString"), Text("DisplayIcon"),
                                 Text("InstallDate"), ParseSizeKb(key.GetValue("EstimatedSize")),
-                                Text("SystemComponent"), Text("NoRemove"))));
+                                Text("SystemComponent"), Text("NoRemove"), Text("URLInfoAbout"), Text("WindowsInstaller"))));
                         }
                         catch (Exception ex) when (IsReadError(ex)) { errors++; }
                     }
@@ -63,10 +69,14 @@ internal static class FastCatalog
     internal static List<AppEntry> Deduplicate(IEnumerable<(string Source, RegistryMetadata Data)> records)
     {
         // Exact metadata equality only; same product name never suffices to merge records.
-        var seen = new HashSet<RegistryMetadata>();
-        return records.Where(x => seen.Add(x.Data)).Select(x => new AppEntry(x.Source,
-            x.Data.Name.Trim(), x.Data.Version, ToBytes(x.Data.SizeKb), ParseDate(x.Data.Date),
-            x.Data.Icon, x.Data.Publisher)).ToList();
+        return records.GroupBy(x => x.Data).Select(group => new AppEntry(group.First().Source,
+            group.Key.Name.Trim(), group.Key.Version, ToBytes(group.Key.SizeKb), ParseDate(group.Key.Date),
+            group.Key.Icon, group.Key.Publisher)
+        {
+            Metadata = group.Key,
+            Sources = group.Select(x => x.Source).ToArray(),
+            Protected = group.Key.SystemComponent == "1" || group.Key.NoRemove == "1"
+        }).ToList();
     }
 
     internal static long? ParseSizeKb(object? value) => value switch
@@ -84,13 +94,14 @@ internal static class FastCatalog
     public static CatalogResult ReadStore()
     {
         // Reuse BCU's current-user Store query only, on the first explicit Store selection.
-        // Never invoke the helper executable or AppManager.UninstallApp.
+        // Removal is a separate explicit action; enumeration never changes packages.
         var apps = StoreAppHelper.AppManager.QueryApps().Select(app =>
         {
             var parts = app.FullName.Split('_');
             var version = parts.Length > 1 && System.Version.TryParse(parts[1], out _) ? parts[1] : "";
             return new AppEntry(app.FullName, app.DisplayName, version, null, null, app.Logo,
-                app.PublisherDisplayName, true);
+                app.PublisherDisplayName, true)
+            { Protected = app.IsProtected, StoreLocation = app.InstalledLocation };
         }).DistinctBy(x => x.Id).ToList();
         return new CatalogResult(apps, 0);
     }

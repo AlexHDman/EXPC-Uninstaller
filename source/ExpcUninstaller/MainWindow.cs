@@ -17,7 +17,7 @@ internal sealed class ProgramGrid : DataGridView
     }
 }
 
-internal sealed class MainWindow : Form
+internal sealed partial class MainWindow : Form
 {
     private readonly ProgramGrid _grid = new();
     private readonly GlassScrollBar _scroll = new();
@@ -64,7 +64,8 @@ internal sealed class MainWindow : Form
         SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
 
         BuildMenu();
-        AddAction(Glyph.Delete, UiText.Delete + " — " + UiText.Disabled, false);
+        _delete = AddAction(Glyph.Delete, UiText.Delete, false);
+        _delete.Click += async (_, _) => await RunSelected(0);
         _refresh = AddAction(Glyph.Refresh, UiText.RefreshHint, true);
         _refresh.Click += async (_, _) => await LoadCatalog(true);
         AddAction(Glyph.Update, UiText.CheckVersions + " — " + UiText.Disabled, false);
@@ -145,8 +146,9 @@ internal sealed class MainWindow : Form
         var file = Top(UiText.Menus[0]);
         file.DropDownItems.Add(UiText.Exit, null, (_, _) => Close());
         var actions = Top(UiText.Menus[1]);
-        foreach (var label in UiText.FutureActions)
-            actions.DropDownItems.Add(DisabledItem(label));
+        for (var i = 0; i < 4; i++) actions.DropDownItems.Add(ActionItem(i));
+        actions.DropDownItems.Add(DisabledItem(UiText.CheckVersions));
+        actions.DropDownOpening += (_, _) => UpdateActionState();
         actions.DropDownItems.Add(UiText.Refresh, null, async (_, _) => await LoadCatalog(true));
         var view = Top(UiText.Menus[2]);
         view.DropDownItems.Add(UiText.Programs, null, async (_, _) => await SwitchTab(0));
@@ -246,8 +248,15 @@ internal sealed class MainWindow : Form
             ForeColor = GlassTeal.Text,
             ShowItemToolTips = true
         };
-        foreach (var label in UiText.ContextActions)
-            context.Items.Add(DisabledItem(label));
+        for (var i = 0; i < UiText.ContextActions.Length; i++) context.Items.Add(i < 8 ? ActionItem(i) : DisabledItem(UiText.ContextActions[i]));
+        context.Opening += (_, _) => UpdateActionState();
+        _grid.SelectionChanged += (_, _) => UpdateActionState();
+        _grid.CellMouseDown += (_, e) =>
+        {
+            if (e.Button != MouseButtons.Right) return;
+            if (e.RowIndex >= 0) _grid.CurrentCell = _grid[0, e.RowIndex];
+            else { _grid.CurrentCell = null; _grid.ClearSelection(); }
+        };
         _grid.ContextMenuStrip = context;
         Controls.Add(_grid);
     }

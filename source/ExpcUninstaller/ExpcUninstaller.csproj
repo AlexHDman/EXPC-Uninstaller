@@ -21,5 +21,6 @@
     <EmbeddedResource Include="..\..\assets\icon.ico" LogicalName="Expc.Icon.ico" />
     <Content Include="..\..\Licence.txt;..\..\NOTICE" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <InternalsVisibleTo Include="ExpcUninstallerTests" />
+    <InternalsVisibleTo Include="ExpcSandboxTests" />
   </ItemGroup>
 </Project>

@@ -220,3 +220,7 @@ _Pvt_Extensions
 # Misc
 *.odt#
 *.DotSettings
+
+# EXPC portable local operation data
+**/local-data/
+**/startup-metrics.jsonl
