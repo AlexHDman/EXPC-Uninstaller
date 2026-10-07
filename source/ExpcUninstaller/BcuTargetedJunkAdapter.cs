@@ -57,7 +57,7 @@ internal static class CleanupBoundary
     public static void NoReparse(string path)
     {
         for (var current = new DirectoryInfo(path); current != null; current = current.Parent)
-            if ((current.Attributes & FileAttributes.ReparsePoint) != 0) throw new IOException("Путь содержит ссылку/junction: " + current.FullName);
+            if ((current.Attributes & FileAttributes.ReparsePoint) != 0) throw new IOException(L.T("Operation62") + current.FullName);
     }
     public static List<string> InspectTree(string path)
     {
@@ -68,9 +68,9 @@ internal static class CleanupBoundary
             NoReparse(directory);
             foreach (var item in Directory.EnumerateFileSystemEntries(directory))
             {
-                if (result.Count > 100000) throw new IOException("Слишком много объектов для безопасной адресной проверки.");
+                if (result.Count > 100000) throw new IOException(L.T("Operation63"));
                 var flags = File.GetAttributes(item);
-                if ((flags & FileAttributes.ReparsePoint) != 0) throw new IOException("Внутри есть ссылка/junction; каталог исключён.");
+                if ((flags & FileAttributes.ReparsePoint) != 0) throw new IOException(L.T("Operation64"));
                 result.Add(item);
                 if ((flags & FileAttributes.Directory) != 0) pending.Push(item);
             }
@@ -86,7 +86,7 @@ internal static class BcuTargetedJunkAdapter
         if (app.Store || app.Protected || app.Metadata == null) return [];
         if (ProductIdentity.IsRegistered(app)) ProductIdentity.RequireUnchanged(app);
         var catalog = FastCatalog.ReadRegistry();
-        if (catalog.ReadErrors != 0) throw new IOException("Не удалось проверить все регистрации; поиск остатков остановлен.");
+        if (catalog.ReadErrors != 0) throw new IOException(L.T("Operation65"));
         var results = new List<JunkItem>();
         if (CleanupBoundary.SafeDirectory(app, catalog.Entries))
         {
@@ -94,7 +94,7 @@ internal static class BcuTargetedJunkAdapter
             if (Directory.Exists(path))
             {
                 CleanupBoundary.InspectTree(path);
-                results.Add(new("folder", path, "InstallLocation + путь штатного EXE; нет пересечений с другими продуктами"));
+                results.Add(new("folder", path, "Operation66"));
             }
         }
         // Only exact product subkeys with a matching explicit InstallLocation value; never delete a publisher root.
@@ -110,7 +110,7 @@ internal static class BcuTargetedJunkAdapter
                 if (key == null || key.GetSubKeyNames().Length != 0) continue; // No nested product/component keys in Phase 03.
                 var location = key.GetValue("InstallLocation", null, RegistryValueOptions.DoNotExpandEnvironmentNames) as string;
                 if (location != null && CleanupBoundary.LocalPath(location) && CleanupBoundary.Normalize(location).Equals(CleanupBoundary.Normalize(app.Metadata.Location), StringComparison.OrdinalIgnoreCase))
-                    results.Add(new("registry", path, "Точный ключ продукта + совпадающий InstallLocation; без вложенных ключей", hive, view));
+                    results.Add(new("registry", path, "Operation67", hive, view));
             }
         return results.Distinct().ToList();
     }
@@ -119,7 +119,7 @@ internal static class BcuTargetedJunkAdapter
     public static async Task Delete(AppEntry app, JunkItem item)
     {
         OperationLog.Write("cleanup-intent", app.Id, item.Path);
-        if (!Find(app).Contains(item)) throw new IOException("Границы или принадлежность объекта изменились. Повторите поиск.");
+        if (!Find(app).Contains(item)) throw new IOException(L.T("Operation27"));
         if (item.Kind == "registry") await RegistryBackup.Delete(item.Hive, item.View, item.Path);
         else if (item.Kind == "folder")
         {
@@ -129,14 +129,14 @@ internal static class BcuTargetedJunkAdapter
             {
                 CleanupBoundary.NoReparse(System.IO.Path.GetDirectoryName(path)!);
                 var attributes = File.GetAttributes(path);
-                if ((attributes & FileAttributes.ReparsePoint) != 0) throw new IOException("Появилась ссылка; удаление остановлено.");
+                if ((attributes & FileAttributes.ReparsePoint) != 0) throw new IOException(L.T("Operation28"));
                 if ((attributes & FileAttributes.Directory) != 0) Directory.Delete(path, false);
                 else File.Delete(path);
             }
             CleanupBoundary.NoReparse(item.Path);
             Directory.Delete(item.Path, false);
         }
-        else throw new InvalidOperationException("Неизвестный вид остатка.");
+        else throw new InvalidOperationException(L.T("Operation29"));
         OperationLog.Write("cleanup-result", app.Id, "deleted: " + item.Path);
     }
 }
@@ -147,7 +147,7 @@ internal static class RegistryBackup
     {
         var full = (hive == RegistryHive.LocalMachine ? "HKEY_LOCAL_MACHINE" : "HKEY_CURRENT_USER") + @"\" + path;
         if (hive is not (RegistryHive.LocalMachine or RegistryHive.CurrentUser) || path.IndexOfAny(['"', '\r', '\n']) >= 0 || path.Split('\\').Length < 3)
-            throw new IOException("Небезопасный путь реестра.");
+            throw new IOException(L.T("Operation68"));
         var directory = System.IO.Path.Combine(OperationLog.DirectoryPath, "registry-backups");
         Directory.CreateDirectory(directory);
         var backup = System.IO.Path.Combine(directory, DateTime.UtcNow.ToString("yyyyMMdd-HHmmss-fffffff") + "-" + view + "-" + PathTools.SanitizeFileName(System.IO.Path.GetFileName(path)) + ".reg");
@@ -158,10 +158,10 @@ internal static class RegistryBackup
             UseShellExecute = false,
             CreateNoWindow = true,
             ArgumentList = { "export", full, backup }
-        }) ?? throw new IOException("Не запущен экспорт реестра."))
+        }) ?? throw new IOException(L.T("Operation69")))
         {
             await export.WaitForExitAsync();
-            if (export.ExitCode != 0 || !File.Exists(backup) || new FileInfo(backup).Length < 40) throw new IOException("Резервная копия не создана; удаление запрещено.");
+            if (export.ExitCode != 0 || !File.Exists(backup) || new FileInfo(backup).Length < 40) throw new IOException(L.T("Operation70"));
         }
         File.WriteAllText(backup + ".txt", "Restore using reg.exe import with /reg:" + (view == RegistryView.Registry32 ? "32" : "64") + Environment.NewLine + full);
         OperationLog.Write("registry-backup", full, backup);
@@ -171,16 +171,16 @@ internal static class RegistryBackup
         {
             // Only this approved key is elevated, never the shell, and only after an access-denied result.
             using var elevated = Process.Start(new ProcessStartInfo(regExe, "delete \"" + full + "\" /f") { UseShellExecute = true, Verb = "runas" })
-                ?? throw new IOException("Не запущено удаление ключа.");
+                ?? throw new IOException(L.T("Operation30"));
             await elevated.WaitForExitAsync();
-            if (elevated.ExitCode != 0) throw new IOException("Удаление ключа: код " + elevated.ExitCode);
+            if (elevated.ExitCode != 0) throw new IOException(L.T("Operation31") + elevated.ExitCode);
         }
         using var check = root.OpenSubKey(path);
-        if (check != null) throw new IOException("Ключ остался; удаление не подтверждено.");
+        if (check != null) throw new IOException(L.T("Operation32"));
     }
     public static async Task RemoveRecord(AppEntry app)
     {
-        if (app.Protected || app.Store) throw new InvalidOperationException("Действие недоступно.");
+        if (app.Protected || app.Store) throw new InvalidOperationException(L.T("Operation33"));
         ProductIdentity.RequireUnchanged(app);
         OperationLog.Write("record-only-start", app.Id, "Files remain");
         foreach (var registration in app.Sources.Select(Registration.Parse).Distinct())

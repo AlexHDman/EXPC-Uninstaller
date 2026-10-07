@@ -7,11 +7,23 @@ namespace ExpcUninstaller;
 
 internal static class Program
 {
+    internal static Preferences Settings { get; } = PortableData.Load<Preferences>("settings");
     [STAThread]
     private static void Main()
     {
-        CultureInfo.DefaultThreadCurrentCulture = CultureInfo.GetCultureInfo("ru-RU");
-        CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.GetCultureInfo("ru-RU");
+        L.Select(PortableData.LanguageFor(Settings.Language, CultureInfo.InstalledUICulture));
+        Theme.Select(Settings.Theme);
+        // Portable folder customization: fixed packaged file only; never touch the repository's desktop.ini.
+        try
+        {
+            var desktop = Path.Combine(AppContext.BaseDirectory, "desktop.ini");
+            if (File.Exists(desktop) && File.ReadAllText(desktop).Contains("IconResource=EXPC-Uninstaller.exe,0", StringComparison.Ordinal))
+            {
+                File.SetAttributes(desktop, File.GetAttributes(desktop) | FileAttributes.Hidden | FileAttributes.System);
+                File.SetAttributes(AppContext.BaseDirectory, File.GetAttributes(AppContext.BaseDirectory) | FileAttributes.ReadOnly);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);

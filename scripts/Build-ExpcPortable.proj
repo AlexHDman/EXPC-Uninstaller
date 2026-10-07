@@ -1,10 +1,10 @@
 <Project DefaultTargets="Package">
   <PropertyGroup>
     <RepositoryRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</RepositoryRoot>
-    <OutputRoot Condition="'$(OutputRoot)' == ''">$(RepositoryRoot)\artifacts\phase03\portable</OutputRoot>
+    <OutputRoot Condition="'$(OutputRoot)' == ''">$(RepositoryRoot)\artifacts\completion\portable</OutputRoot>
     <OutputRoot>$([System.IO.Path]::GetFullPath('$(OutputRoot)'))</OutputRoot>
     <PublishDirectory>$(OutputRoot)\publish</PublishDirectory>
-    <ArchivePath>$(OutputRoot)\EXPC-Uninstaller-phase03-net10-win-x64.zip</ArchivePath>
+    <ArchivePath>$(OutputRoot)\EXPC-Uninstaller-completion-net10-win-x64.zip</ArchivePath>
     <ExtractDirectory>$(OutputRoot)\unpacked</ExtractDirectory>
   </PropertyGroup>
   <Target Name="Package">

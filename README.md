@@ -1,5 +1,9 @@
 ## EXPC-Uninstaller fork
 
+Текущий результат: [интерфейс, версии, темы, языки и проверки portable](docs/EXPC_COMPLETION.md).
+
+Phase 03A: [облегчённое оформление таблицы и панели](docs/EXPC_PHASE03A.md).
+
 Phase 03: [действия удаления, адресные остатки и результаты Sandbox](docs/EXPC_PHASE03.md).
 
 Оболочка EXPC: .NET 10, SDK **10.0.401** (без preview), WinForms, Glass Teal EXPC-002. [Сборка, portable ZIP и проверка чистой Windows](docs/EXPC_PHASE02A.md).

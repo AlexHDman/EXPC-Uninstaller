@@ -32,6 +32,16 @@ internal static class Program
         Directory.CreateDirectory(TestRoot);
         try
         {
+            if (args.Contains("store-only"))
+            {
+                var manager = new Windows.Management.Deployment.PackageManager();
+                var package = manager.FindPackagesForUser("").Single(p => p.Id.Name == "EXPC.SandboxFixture.Uninstall");
+                var entry = new AppEntry(package.Id.FullName, "EXPC Store removal fixture", "1.0.0.0", null, null, null, "EXPC Test", true);
+                var result = await ProductActions.Uninstall(entry, CancellationToken.None);
+                var remains = manager.FindPackagesForUser("").Any(p => p.Id.Name == "EXPC.SandboxFixture.Uninstall");
+                File.WriteAllText(@"C:\EXPC-Results\store-result.json", JsonSerializer.Serialize(new { result, Remains = remains }));
+                return result.Removed && !remains ? 0 : 1;
+            }
             if (args.Contains("msi-only"))
             {
                 var result = await MsiFixture.Run();
@@ -76,8 +86,12 @@ internal static class Program
             using (var key = Registry.CurrentUser.OpenSubKey(Registration.Parent + @"\EXPC-Phase03-Test", true)) key!.SetValue("DisplayVersion", "changed");
             bool rejected = false; try { ProductIdentity.RequireUnchanged(shared); } catch (InvalidOperationException) { rejected = true; }
             Check("identity-change", rejected, "changed registration refused");
-            var msiResult = await MsiFixture.Run();
-            Check("msi-install-uninstall", msiResult.Removed, msiResult);
+            if (!args.Contains("--skip-msi"))
+            {
+                var msiResult = await MsiFixture.Run();
+                Check("msi-install-uninstall", msiResult.Removed, msiResult);
+            }
+            else Console.WriteLine("MSI: NOT TESTED in this run (--skip-msi)");
             var preview = Install("error");
             Directory.CreateSymbolicLink(preview.Metadata!.Location + @"\foreign-link", TestRoot + @"\EXPC Test Vendor\Other Product");
             var linkRejected = false; try { BcuTargetedJunkAdapter.Find(preview); } catch (IOException) { linkRejected = true; }
@@ -99,6 +113,7 @@ internal static class Program
     private static void Check(string name, bool pass, object evidence)
     {
         Results.Add(new { name, pass, evidence });
+        File.WriteAllText(@"C:\EXPC-Results\results.json", JsonSerializer.Serialize(Results, new JsonSerializerOptions { WriteIndented = true }));
         if (!pass) throw new Exception("FAILED: " + name);
     }
     private static AppEntry Install(string mode)

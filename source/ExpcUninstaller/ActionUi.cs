@@ -12,6 +12,7 @@ internal sealed partial class MainWindow
     private ToolStripMenuItem ActionItem(int action)
     {
         var item = new ToolStripMenuItem(UiText.ContextActions[action]);
+        item.ShortcutKeys = action switch { 0 => Keys.Control | Keys.U, 1 => Keys.Control | Keys.Shift | Keys.U, 2 => Keys.Control | Keys.J, 4 => Keys.Control | Keys.O, 5 => Keys.Control | Keys.R, 9 => Keys.Control | Keys.F5, _ => Keys.None };
         item.Click += async (_, _) => await RunSelected(action);
         _operationMenus.Add((action, item));
         return item;
@@ -28,6 +29,8 @@ internal sealed partial class MainWindow
             5 => win32,
             6 => Website(entry.Metadata?.Website) != null,
             7 => true,
+            8 => _versionCancellation == null,
+            9 => _versionCancellation == null,
             _ => false
         };
     }
@@ -38,12 +41,12 @@ internal sealed partial class MainWindow
         foreach (var (action, item) in _operationMenus)
         {
             item.Enabled = CanRun(action, selected);
-            item.ToolTipText = item.Enabled ? "" : "Недоступно для выбранной записи или операция выполняется";
+            item.ToolTipText = item.Enabled ? "" : L.T("Operation0");
         }
         if (_delete == null) return;
         _delete.ActionEnabled = CanRun(0, selected); _delete.TabStop = _delete.ActionEnabled; _delete.Invalidate();
     }
-    private bool Confirm(string text) => MessageBox.Show(this, text, UiText.Title, MessageBoxButtons.YesNo,
+    private bool Confirm(string text) => Dialogs.Show(this, text, UiText.Title, MessageBoxButtons.YesNo,
         MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) == DialogResult.Yes;
     private async Task RefreshAfter(AppEntry app)
     {
@@ -56,10 +59,12 @@ internal sealed partial class MainWindow
         if (!CanRun(action, app) || app == null) return;
         try
         {
+            if (action == 8) { EditSource(app); return; }
+            if (action == 9) { await CheckVersions([app]); return; }
             if (action == 4)
             {
                 var path = app.Store ? app.StoreLocation! : CleanupBoundary.Normalize(app.Metadata!.Location);
-                if (!Directory.Exists(path)) throw new IOException("Папка отсутствует.");
+                if (!Directory.Exists(path)) throw new IOException(L.T("Operation1"));
                 Process.Start(new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe")) { UseShellExecute = true, ArgumentList = { path } });
                 return;
             }
@@ -67,7 +72,7 @@ internal sealed partial class MainWindow
             {
                 var registration = Registration.Parse(app.Sources[0]);
                 using var key = registration.Open();
-                if (key == null) throw new IOException("Запись отсутствует. Обновите список.");
+                if (key == null) throw new IOException(L.T("Operation2"));
                 var path = registration.FullPath;
                 if (registration.View == RegistryView.Registry32 && registration.Hive == RegistryHive.LocalMachine)
                     path = path.Replace(@"\SOFTWARE\", @"\SOFTWARE\WOW6432Node\");
@@ -83,9 +88,9 @@ internal sealed partial class MainWindow
                     : "https://www.google.com/search?q=" + Uri.EscapeDataString(app.Name + " " + app.Publisher);
                 Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); return;
             }
-            if (action == 0 && !Confirm("Удалить «" + app.Name + "»?\n" + (app.Store ? "Только для текущего пользователя." : "Будет запущен штатный деинсталлятор."))) return;
-            if (action == 1 && !Confirm("Принудительное удаление «" + app.Name + "»: найти связанные остатки для ручного выбора?\nШтатный деинсталлятор запускаться не будет. Полное удаление не гарантируется.")) return;
-            if (action == 3 && !Confirm("Удалить запись «" + app.Name + "» из списка?\nФайлы программы останутся. Перед изменением будет сохранена резервная копия реестра.")) return;
+            if (action == 0 && !Confirm(L.T("Operation3") + app.Name + "»?\n" + (app.Store ? L.T("Operation4") : L.T("Operation5")))) return;
+            if (action == 1 && !Confirm(L.T("Operation6") + app.Name + L.T("Operation7"))) return;
+            if (action == 3 && !Confirm(L.T("Operation8") + app.Name + L.T("Operation9"))) return;
             _operationBusy = true; UpdateActionState();
             if (action == 0)
             {
@@ -96,28 +101,28 @@ internal sealed partial class MainWindow
                 try { result = await Task.Run(() => ProductActions.Uninstall(app, cancel.Token)); }
                 finally { progress.Complete(); }
                 await RefreshAfter(app);
-                MessageBox.Show(this, result.Message, app.Name, MessageBoxButtons.OK, result.Removed ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
-                if (result.Removed && !app.Store && !result.Reboot && Confirm("«" + app.Name + "»: найти оставшиеся файлы и ключи реестра?")) await ShowJunk(app);
+                Dialogs.Show(this, result.Message, app.Name, MessageBoxButtons.OK, result.Removed ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+                if (result.Removed && !app.Store && !result.Reboot && Confirm("«" + app.Name + L.T("Operation10"))) await ShowJunk(app);
             }
             else if (action is 1 or 2) await ShowJunk(app);
             else if (action == 3)
             {
                 await Task.Run(() => RegistryBackup.RemoveRecord(app));
                 await RefreshAfter(app);
-                MessageBox.Show(this, "Удалена только запись. Файлы программы не удалялись.", app.Name);
+                Dialogs.Show(this, L.T("Operation11"), app.Name);
             }
         }
         catch (Exception ex)
         {
             try { OperationLog.Write("operation-error", app.Id, ex.ToString()); } catch { }
-            MessageBox.Show(this, ex.Message, "Операция не завершена", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            Dialogs.Show(this, ex.Message, L.T("Operation12"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
             if (action <= 3) await RefreshAfter(app);
         }
         finally { _operationBusy = false; UpdateActionState(); }
     }
     private async Task ShowJunk(AppEntry app)
     {
-        _status = "Адресный поиск остатков…"; Invalidate();
+        _status = L.T("Operation13"); Invalidate();
         try
         {
             var items = await Task.Run(() => BcuTargetedJunkAdapter.Find(app));
@@ -129,6 +134,8 @@ internal sealed partial class MainWindow
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
         if (_operationBusy) { e.Cancel = true; return; }
+        _versionCancellation?.Cancel();
+        SavePreferences();
         base.OnFormClosing(e);
     }
 }
@@ -138,11 +145,11 @@ internal sealed class OperationWindow : Form
     private bool _done;
     public OperationWindow(string name, CancellationTokenSource cancellation)
     {
-        Text = "Удаление — " + name; ClientSize = new Size(470, 110); FormBorderStyle = FormBorderStyle.FixedDialog;
+        Text = L.T("Operation14") + name; ClientSize = new Size(470, 110); FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = MinimizeBox = false; StartPosition = FormStartPosition.CenterParent;
         BackColor = GlassTeal.Background; ForeColor = GlassTeal.Text;
-        var text = new Label { Text = "Ожидание деинсталлятора и проверка регистрации.\nДля отмены удаления используйте окно деинсталлятора.", AutoSize = false, Dock = DockStyle.Top, Height = 65, Padding = new Padding(12) };
-        var stop = new Button { Text = "Прекратить ожидание", Dock = DockStyle.Bottom, Height = 32, FlatStyle = FlatStyle.Flat };
+        var text = new Label { Text = L.T("Operation15"), AutoSize = false, Dock = DockStyle.Top, Height = 65, Padding = new Padding(12) };
+        var stop = new Button { Text = L.T("Operation16"), Dock = DockStyle.Bottom, Height = 32, FlatStyle = FlatStyle.Flat };
         stop.Click += (_, _) => { cancellation.Cancel(); stop.Enabled = false; };
         Controls.Add(text); Controls.Add(stop);
         FormClosing += (_, e) => { if (!_done) { e.Cancel = true; cancellation.Cancel(); } };
@@ -153,12 +160,12 @@ internal sealed class OperationWindow : Form
 internal sealed class JunkWindow : Form
 {
     private readonly DataGridView _items = new();
-    private readonly Button _remove = new() { Text = "Удалить выбранное", AutoSize = true, FlatStyle = FlatStyle.Flat };
-    private readonly Button _close = new() { Text = "Закрыть", AutoSize = true, FlatStyle = FlatStyle.Flat };
+    private readonly Button _remove = new() { Text = L.T("Operation17"), AutoSize = true, FlatStyle = FlatStyle.Flat };
+    private readonly Button _close = new() { Text = L.T("Operation18"), AutoSize = true, FlatStyle = FlatStyle.Flat };
     private bool _busy;
     public JunkWindow(AppEntry app, List<JunkItem> items)
     {
-        Text = "Остатки — " + app.Name; StartPosition = FormStartPosition.CenterParent;
+        Text = L.T("Operation19") + app.Name; StartPosition = FormStartPosition.CenterParent;
         AutoScaleMode = AutoScaleMode.Dpi; ClientSize = new Size(850, 400); MinimumSize = new Size(600, 300);
         BackColor = GlassTeal.Background; ForeColor = GlassTeal.Text; Font = new Font("Segoe UI", 9);
         var heading = new Label
@@ -166,8 +173,8 @@ internal sealed class JunkWindow : Form
             Dock = DockStyle.Top,
             Height = 55,
             Padding = new Padding(10),
-            Text = items.Count == 0 ? "Подтверждённые адресные остатки не найдены. Это не доказательство полного отсутствия остатков."
-                : app.Name + " — " + items.Count + " объекта\nВыберите вручную. Файлы удаляются без корзины; ключи реестра сохраняются в резервную копию."
+            Text = items.Count == 0 ? L.T("Operation20")
+                : app.Name + " — " + items.Count + L.T("Operation21")
         };
         _items.Dock = DockStyle.Fill; _items.BackgroundColor = GlassTeal.Background; _items.BorderStyle = BorderStyle.None;
         _items.AllowUserToAddRows = _items.AllowUserToDeleteRows = false; _items.RowHeadersVisible = false;
@@ -176,10 +183,10 @@ internal sealed class JunkWindow : Form
         _items.DefaultCellStyle.SelectionBackColor = GlassTeal.Selection; _items.DefaultCellStyle.SelectionForeColor = GlassTeal.Text;
         _items.EnableHeadersVisualStyles = false; _items.ColumnHeadersDefaultCellStyle.BackColor = GlassTeal.Caption; _items.ColumnHeadersDefaultCellStyle.ForeColor = GlassTeal.Text;
         _items.Columns.Add(new DataGridViewCheckBoxColumn { HeaderText = "", Width = 32, AutoSizeMode = DataGridViewAutoSizeColumnMode.None });
-        foreach (var title in new[] { "Объект", "Основание" }) _items.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = title, ReadOnly = true });
+        foreach (var title in new[] { L.T("Operation22"), L.T("Operation23") }) _items.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = title, ReadOnly = true });
         foreach (var item in items)
         {
-            var row = _items.Rows[_items.Rows.Add(false, item.Kind == "folder" ? item.Path : item.Hive + " / " + item.View + " / " + item.Path, item.Evidence)]; row.Tag = item;
+            var row = _items.Rows[_items.Rows.Add(false, item.Kind == "folder" ? item.Path : item.Hive + " / " + item.View + " / " + item.Path, L.T(item.Evidence))]; row.Tag = item;
         }
         var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 44, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6) };
         bar.Controls.Add(_close); bar.Controls.Add(_remove);
@@ -192,7 +199,7 @@ internal sealed class JunkWindow : Form
             _items.EndEdit();
             var selected = _items.Rows.Cast<DataGridViewRow>().Where(r => r.Cells[0].Value is true).ToList();
             if (selected.Count == 0) return;
-            if (MessageBox.Show(this, "Удалить выбранные объекты («" + app.Name + "»): " + selected.Count + "?\nУдаление файлов необратимо.", Text,
+            if (Dialogs.Show(this, L.T("Operation24") + app.Name + "»): " + selected.Count + L.T("Operation25"), Text,
                 MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
             _busy = true; _items.Enabled = _remove.Enabled = _close.Enabled = false;
             var errors = new List<string>();
@@ -208,7 +215,7 @@ internal sealed class JunkWindow : Form
                         try { OperationLog.Write("cleanup-error", app.Id, item.Path + ": " + ex); } catch { }
                     }
                 }
-                MessageBox.Show(this, errors.Count == 0 ? "Выбранные объекты удалены. Результат записан в local-data." : string.Join("\n", errors), Text);
+                Dialogs.Show(this, errors.Count == 0 ? L.T("Operation26") : string.Join("\n", errors), Text);
             }
             finally { _busy = false; _items.Enabled = _close.Enabled = true; _remove.Enabled = _items.Rows.Count > 0; }
         };

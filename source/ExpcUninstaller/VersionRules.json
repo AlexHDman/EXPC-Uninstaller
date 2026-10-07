@@ -1,0 +1,79 @@
+[
+  {
+    "id": "cryptopro-csp",
+    "namePattern": "^(?:КриптоПро|CryptoPro) CSP$",
+    "publisherPattern": "^(?:Компания КриптоПро|Crypto-Pro LLC|CryptoPro LLC|ООО \"КРИПТО-ПРО\"|КРИПТО-ПРО)$",
+    "provider": "manual",
+    "url": "https://cryptopro.ru/products/csp/downloads",
+    "channel": "certified / selected branch",
+    "branch": "5",
+    "manualReason": "CspManual",
+    "compatibility": "CryptoCompatibility"
+  },
+  {
+    "id": "cryptopro-browser-plugin",
+    "namePattern": "^(?:КриптоПро ЭЦП Browser plug-in|CryptoPro (?:CAdES |ЭЦП )?Browser plug-in)$",
+    "publisherPattern": "^(?:Компания КриптоПро|Crypto-Pro LLC|CryptoPro LLC|ООО \"КРИПТО-ПРО\"|КРИПТО-ПРО)$",
+    "provider": "page",
+    "url": "https://cryptopro.ru/sites/default/files/products/cades/latest_2_0.txt",
+    "channel": "2.x / Windows",
+    "branch": "2",
+    "manualReason": "",
+    "compatibility": "CryptoCompatibility",
+    "pattern": "^\\s*(?<version>2\\.0\\.\\d+)\\s*$"
+  },
+  {
+    "id": "rutoken-drivers",
+    "namePattern": "^(?:Драйверы Рутокен|Rutoken Drivers)(?: \\((?:x64|x86)\\))?$",
+    "publisherPattern": "^(?:Компания \"Актив\"|Aktiv Company|Aktiv Co\\.|Aktiv Co\\., Ltd\\.|Aktiv Co\\. Ltd\\.|АО \"Актив-софт\"|ООО \"Актив-софт\"|АктиВ)$",
+    "provider": "page",
+    "url": "https://rutoken.ru/support/download/windows/",
+    "pattern": "Драйверы\\s+Рутокен\\s+для\\s+Windows,\\s*EXE\\s+Версия:\\s*(?<version>\\d+(?:\\.\\d+){3})",
+    "channel": "Windows stable",
+    "branch": "5",
+    "compatibility": "RutokenWindows"
+  },
+  {
+    "id": "rutoken-plugin",
+    "namePattern": "^(?:Рутокен Плагин|Rutoken Plugin)$",
+    "publisherPattern": "^(?:Компания \"Актив\"|Aktiv Company|Aktiv Co\\.|Aktiv Co\\., Ltd\\.|Aktiv Co\\. Ltd\\.|АО \"Актив-софт\"|ООО \"Актив-софт\"|АктиВ)$",
+    "provider": "page",
+    "url": "https://rutoken.ru/support/download/rutoken-plugin/",
+    "pattern": "Рутокен\\s+Плагин\\s+для\\s+Windows\\s+Версия:\\s*(?<version>\\d+(?:\\.\\d+){3})",
+    "channel": "Windows stable",
+    "branch": "4",
+    "compatibility": "RutokenWindows"
+  },
+  {
+    "id": "bcu",
+    "namePattern": "^BCUninstaller(?: \\d+(?:\\.\\d+)*)?$",
+    "publisherPattern": "^(?:Klocman Software|Marcin Szeniak)$",
+    "provider": "github",
+    "url": "https://github.com/BCUninstaller/Bulk-Crap-Uninstaller",
+    "pattern": "^v?(?<version>\\d+(?:\\.\\d+)+)$",
+    "channel": "stable",
+    "compatibility": "CompatibilityUnknown",
+    "wingetId": "Klocman.BulkCrapUninstaller"
+  },
+  {
+    "id": "7zip",
+    "namePattern": "^7-Zip \\d+(?:\\.\\d+)+(?: \\((?:x64|x86|64-bit|32-bit)\\))?$",
+    "publisherPattern": "^Igor Pavlov$",
+    "provider": "page",
+    "url": "https://www.7-zip.org/",
+    "pattern": "Download 7-Zip (?<version>\\d+\\.\\d+) \\(",
+    "channel": "stable",
+    "compatibility": "CompatibilityUnknown",
+    "wingetId": "7zip.7zip"
+  },
+  {
+    "id": "kontur-plugin",
+    "namePattern": "^Контур\\.Плагин(?: \\d+(?:\\.\\d+)+(?: \\((?:64-bit|32-bit)\\))?)?$",
+    "publisherPattern": "^(?:АО «ПФ «СКБ Контур»|АО \"ПФ \"СКБ Контур\"|ЗАО \"ПФ \"СКБ Контур\"|SKB Kontur)$",
+    "provider": "manual",
+    "url": "https://help.kontur.ru/plugin/",
+    "channel": "Windows / vendor diagnostics",
+    "manualReason": "ManualSource",
+    "compatibility": "CryptoCompatibility"
+  }
+]

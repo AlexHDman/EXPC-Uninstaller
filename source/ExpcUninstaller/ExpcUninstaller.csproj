@@ -19,8 +19,12 @@
     <ProjectReference Include="..\KlocTools\KlocTools.csproj" />
     <ProjectReference Include="..\StoreAppHelper\StoreAppHelper.csproj" />
     <EmbeddedResource Include="..\..\assets\icon.ico" LogicalName="Expc.Icon.ico" />
+    <EmbeddedResource Include="VersionRules.json" LogicalName="Expc.VersionRules.json" />
+    <EmbeddedResource Include="Locales\*.json" LogicalName="Expc.Locale.%(Filename).json" />
     <Content Include="..\..\Licence.txt;..\..\NOTICE" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\scripts\portable-desktop.ini" Link="desktop.ini" CopyToOutputDirectory="PreserveNewest" />
     <InternalsVisibleTo Include="ExpcUninstallerTests" />
     <InternalsVisibleTo Include="ExpcSandboxTests" />
+    <InternalsVisibleTo Include="ExpcVerification" />
   </ItemGroup>
 </Project>

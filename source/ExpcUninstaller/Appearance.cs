@@ -8,60 +8,58 @@ internal static class UiText
     public const string Title = "EXPC Uninstaller";
     public const string Design = "EXPC-002";
     public const string Empty = "—";
-    public const string Ready = "Готово";
-    public const string Loading = "Чтение списка…";
-    public const string Search = "Поиск программ";
-    public const string Unknown = "Не проверено. Проверка версий пока не подключена.";
-    public const string Disabled = "Будет подключено на следующем этапе";
-    public const string Scroll = "Прокрутка списка";
-    public const string Press = "Нажать";
-    public const string Delete = "Удалить";
-    public const string Refresh = "Обновить список";
-    public const string RefreshHint = "Обновить список (F5)";
-    public const string CheckVersions = "Проверить версии";
-    public const string Theme = "Тема: Glass Teal";
-    public const string Language = "Язык: русский";
-    public const string ThemeHint = "Тема: Glass Teal. Выбор темы пока недоступен";
-    public const string LanguageHint = "Язык: русский. Выбор языка пока недоступен";
-    public const string Programs = "Программы";
     public const string Store = "Microsoft Store";
-    public const string StoreHint = "Microsoft Store — текущий пользователь";
-    public const string Minimize = "Свернуть";
-    public const string Maximize = "Развернуть / восстановить";
-    public const string Close = "Закрыть";
-    public const string Exit = "Выход";
-    public const string Attribution = "EXPC-002 · на основе BCU / Marcin Szeniak";
-    public const string License = "Лицензия и авторство: Licence.txt / NOTICE";
-    public const string ReadFailed = "Не удалось прочитать список";
-    public const string RefreshFailed = "Сбой обновления; прежний список";
-    public const string ReadError = "Ошибка чтения: ";
-    public static string ReadErrors(int count) => $"Ошибки чтения: {count}";
-    public static readonly string[] FutureActions = [Delete, "Принудительное удаление", "Поиск остатков", "Удалить запись", CheckVersions];
-    public static readonly string[] ContextActions = [Delete, "Принудительное удаление", "Поиск остатков", "Удалить запись",
-        "Папка программы", "Запись реестра", "Официальный сайт", "Google", "Источник обновлений"];
-    public static readonly string[] Columns = ["Программа", "Размер", "Установлено", "Версия", "Статус", "Новая"];
-    public static readonly string[] Menus = ["Файл", "Действия", "Вид", "Справка"];
-    public static string Count(int shown, int total) => shown == total ? $"Программ: {total}" : $"Найдено: {shown} из {total}";
+    public static string Ready => L.T("Ready");
+    public static string Loading => L.T("Loading");
+    public static string Search => L.T("Search");
+    public static string Unknown => L.T("StatusUnchecked");
+    public static string Disabled => L.T("Unavailable");
+    public static string Scroll => L.T("Scroll");
+    public static string Press => L.T("Press");
+    public static string Delete => L.T("Uninstall");
+    public static string Refresh => L.T("Refresh");
+    public static string CheckVersions => L.T("CheckVersions");
+    public static string Theme => L.T("Theme");
+    public static string Language => L.T("Language");
+    public static string ThemeHint => L.T("Theme");
+    public static string LanguageHint => L.T("Language");
+    public static string Programs => L.T("Programs");
+    public static string StoreHint => L.T("StoreHint");
+    public static string Minimize => L.T("Minimize");
+    public static string Maximize => L.T("Maximize");
+    public static string Close => L.T("Close");
+    public static string Exit => L.T("Exit");
+    public static string Attribution => L.T("Attribution");
+    public static string License => L.T("About");
+    public static string ReadFailed => L.T("ReadFailed");
+    public static string RefreshFailed => L.T("RefreshFailed");
+    public static string ReadError => L.T("ReadFailed");
+    public static string RefreshHint => Refresh + " (F5)";
+    public static string ReadErrors(int count) => L.F("ReadErrors", count);
+    public static string[] ContextActions => [Delete, L.T("Force"), L.T("FindJunk"), L.T("RemoveEntry"), L.T("Folder"), L.T("Registry"), L.T("Website"), L.T("Google"), L.T("SourceEditor"), L.T("CheckSelected")];
+    public static string[] Columns => new[] { "ProgramColumn", "SizeColumn", "InstalledColumn", "VersionColumn", "StatusColumn", "NewColumn" }.Select(L.T).ToArray();
+    public static string[] Menus => new[] { "FileMenu", "ActionsMenu", "ViewMenu", "HelpMenu" }.Select(L.T).ToArray();
+    public static string Count(int shown, int total) => shown == total ? L.F("Count", total) : L.F("Found", shown, total);
     public static string Size(long? bytes) => bytes switch
     {
         null => Empty,
-        >= 1073741824 => $"{bytes.Value / 1073741824d:0.##} ГБ",
-        >= 1048576 => $"{bytes.Value / 1048576d:0.##} МБ",
-        _ => $"{bytes.Value / 1024d:0.##} КБ"
+        >= 1073741824 => $"{bytes.Value / 1073741824d:0.##} GB",
+        >= 1048576 => $"{bytes.Value / 1048576d:0.##} MB",
+        _ => $"{bytes.Value / 1024d:0.##} KB"
     };
 }
 
 internal static class GlassTeal
 {
-    public static readonly Color Background = Color.FromArgb(17, 29, 35);
-    public static readonly Color Surface = Color.FromArgb(23, 40, 49);
-    public static readonly Color Stripe = Color.FromArgb(27, 44, 53);
-    public static readonly Color Border = Color.FromArgb(48, 76, 87);
-    public static readonly Color Text = Color.FromArgb(230, 241, 245);
-    public static readonly Color Muted = Color.FromArgb(136, 164, 176);
-    public static readonly Color Accent = Color.FromArgb(58, 220, 222);
-    public static readonly Color Selection = Color.FromArgb(23, 75, 88);
-    public static readonly Color Caption = Color.FromArgb(29, 56, 68);
+    public static Color Background => Theme.Light ? Color.FromArgb(246, 247, 248) : Color.FromArgb(27, 32, 36);
+    public static Color Surface => Theme.Blend(Background, Theme.Accent, Theme.Light ? .09f : .12f);
+    public static Color Stripe => Theme.Light ? Color.FromArgb(234, 237, 239) : Color.FromArgb(32, 38, 42);
+    public static Color Border => Theme.Light ? Color.FromArgb(191, 202, 207) : Color.FromArgb(48, 65, 72);
+    public static Color Text => Theme.Light ? Color.FromArgb(28, 36, 42) : Color.FromArgb(230, 241, 245);
+    public static Color Muted => Theme.Light ? Color.FromArgb(84, 101, 112) : Color.FromArgb(136, 164, 176);
+    public static Color Accent => Theme.Accent;
+    public static Color Selection => Theme.Blend(Background, Theme.Accent, .24f);
+    public static Color Caption => Theme.Blend(Background, Theme.Accent, .14f);
     public static readonly Color StatusTop = Color.FromArgb(84, 110, 125);
     public static readonly Color StatusBottom = Color.FromArgb(40, 60, 73);
     public static readonly Color ButtonSelected = Color.FromArgb(25, 103, 118);
@@ -95,7 +93,8 @@ internal sealed class GlassButton : Control
     public GlassButton()
     {
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer |
-                 ControlStyles.Selectable, true);
+                 ControlStyles.Selectable | ControlStyles.SupportsTransparentBackColor, true);
+        BackColor = Color.Transparent;
         Cursor = Cursors.Hand;
         AccessibleRole = AccessibleRole.PushButton;
     }
@@ -120,49 +119,70 @@ internal sealed class GlassButton : Control
     {
         var g = e.Graphics;
         g.SmoothingMode = SmoothingMode.AntiAlias;
-        var r = new Rectangle(1, 1, Width - 3, Height - 3);
-        GlassTeal.Fill(g, ClientRectangle, GlassTeal.Surface, GlassTeal.Background);
-        if (!CaptionButton || _hover)
+        // Parent paints the continuous panel; icons have no backing plate or frame.
+        if (_hover && ActionEnabled)
         {
-            var top = Selected ? GlassTeal.ButtonSelected : _hover && ActionEnabled ? GlassTeal.ButtonHover : GlassTeal.ButtonTop;
-            GlassTeal.Fill(g, r, top, GlassTeal.ButtonBottom);
-            using var border = new Pen(Selected ? GlassTeal.Accent : GlassTeal.Border);
-            g.DrawRectangle(border, r);
-            using var shine = new Pen(GlassTeal.Shine);
-            g.DrawLine(shine, 3, 3, Width - 4, 3);
+            using var hover = new SolidBrush(Color.FromArgb(22, GlassTeal.Accent));
+            g.FillEllipse(hover, 2, 2, Width - 4, Height - 4);
         }
-        var size = Math.Min(Width, Height) * .55f;
+        var size = Math.Min(Width, Height) * .60f;
         var old = g.Save();
         g.TranslateTransform((Width - size) / 2, (Height - size) / 2);
         g.ScaleTransform(size / 24, size / 24);
-        using var pen = new Pen(ActionEnabled ? GlassTeal.Text : GlassTeal.Muted, 1.6f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
-        using var accent = new SolidBrush(ActionEnabled ? GlassTeal.Accent : GlassTeal.Muted);
+        Color Ink(Color color) => Color.FromArgb(ActionEnabled ? 255 : 120, color);
+        using var pen = new Pen(Ink(GlassTeal.Text), 1.6f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+        using var teal = new Pen(Ink(Color.FromArgb(74, 194, 183)), 2.4f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+        using var blue = new SolidBrush(Ink(Color.FromArgb(69, 151, 222)));
+        using var coral = new SolidBrush(Ink(Color.FromArgb(218, 120, 105)));
+        using var gold = new SolidBrush(Ink(Color.FromArgb(228, 179, 83)));
+        void Logo(float x, float y, float side)
+        {
+            var half = (side - 1.5f) / 2;
+            Color[] colors = [Color.FromArgb(242, 80, 34), Color.FromArgb(127, 186, 0),
+                Color.FromArgb(0, 164, 239), Color.FromArgb(255, 185, 0)];
+            for (var i = 0; i < 4; i++)
+            {
+                using var tile = new SolidBrush(Ink(colors[i]));
+                g.FillRectangle(tile, x + i % 2 * (half + 1.5f), y + i / 2 * (half + 1.5f), half, half);
+            }
+        }
         switch (Glyph)
         {
             case Glyph.Delete:
-                g.DrawRectangle(pen, 5, 6, 14, 16); g.DrawLine(pen, 3, 5, 21, 5); g.DrawRectangle(pen, 9, 2, 6, 3);
-                g.DrawLine(pen, 10, 9, 10, 18); g.DrawLine(pen, 14, 9, 14, 18); break;
+                g.FillPolygon(coral, new Point[] { new(5, 7), new(19, 7), new(17, 22), new(7, 22) });
+                using (var lid = new Pen(Ink(Color.FromArgb(239, 153, 132)), 2))
+                { g.DrawLine(lid, 4, 5, 20, 5); g.DrawLines(lid, new Point[] { new(9, 4), new(9, 2), new(15, 2), new(15, 4) }); }
+                g.DrawLine(pen, 10, 10, 10, 18); g.DrawLine(pen, 14, 10, 14, 18); break;
             case Glyph.Refresh:
-                g.DrawArc(pen, 3, 3, 18, 18, 200, 145); g.DrawArc(pen, 3, 3, 18, 18, 20, 145);
-                g.DrawLines(pen, new Point[] { new(17, 7), new(22, 7), new(22, 2) });
-                g.DrawLines(pen, new Point[] { new(2, 22), new(2, 17), new(7, 17) }); break;
+                g.DrawArc(teal, 4, 4, 16, 16, 205, 135); g.DrawArc(teal, 4, 4, 16, 16, 25, 135);
+                g.DrawLines(teal, new Point[] { new(17, 7), new(22, 7), new(22, 2) });
+                g.DrawLines(teal, new Point[] { new(2, 22), new(2, 17), new(7, 17) }); break;
             case Glyph.Update:
-                g.FillPolygon(accent, new Point[] { new(12, 2), new(22, 12), new(16, 12), new(16, 22), new(8, 22), new(8, 12), new(2, 12) }); break;
+                g.FillPolygon(blue, new Point[] { new(12, 2), new(22, 12), new(16, 12), new(16, 22), new(8, 22), new(8, 12), new(2, 12) }); break;
             case Glyph.Theme:
-                g.DrawEllipse(pen, 2, 2, 20, 19); g.FillEllipse(accent, 7, 6, 3, 3); g.FillEllipse(accent, 14, 5, 3, 3);
-                g.FillEllipse(accent, 17, 11, 3, 3); g.FillEllipse(accent, 5, 12, 3, 3); break;
+                g.FillEllipse(gold, 2, 2, 20, 20);
+                g.FillEllipse(coral, 6, 6, 4, 4); g.FillEllipse(blue, 14, 5, 4, 4);
+                using (var spot = new SolidBrush(Ink(Color.FromArgb(65, 154, 137)))) g.FillEllipse(spot, 16, 12, 4, 4);
+                using (var hole = new SolidBrush(Ink(GlassTeal.Background))) g.FillEllipse(hole, 6, 14, 3, 3); break;
             case Glyph.Language:
-                g.DrawEllipse(pen, 2, 2, 20, 20); g.DrawEllipse(pen, 7, 2, 10, 20); g.DrawLine(pen, 3, 8, 21, 8); g.DrawLine(pen, 3, 16, 21, 16); break;
-            case Glyph.Programs:
-                foreach (var x in new[] { 3, 14 }) foreach (var y in new[] { 3, 14 }) g.FillRectangle(accent, x, y, 7, 7); break;
+                g.FillEllipse(blue, 2, 2, 20, 20); g.DrawEllipse(pen, 7, 2, 10, 20);
+                g.DrawLine(pen, 3, 8, 21, 8); g.DrawLine(pen, 3, 16, 21, 16); break;
+            case Glyph.Programs: Logo(2, 2, 20); break;
             case Glyph.Store:
-                g.DrawRectangle(pen, 4, 7, 16, 15); g.DrawArc(pen, 8, 1, 8, 12, 180, 180); break;
+                using (var handle = new Pen(Ink(Color.FromArgb(111, 182, 240)), 2))
+                    g.DrawArc(handle, 8, 1, 8, 11, 180, 180);
+                g.FillPolygon(blue, new Point[] { new(4, 7), new(20, 7), new(22, 22), new(2, 22) });
+                Logo(7, 10, 10); break;
             case Glyph.Minimize: g.DrawLine(pen, 5, 13, 19, 13); break;
             case Glyph.Maximize: g.DrawRectangle(pen, 5, 5, 14, 14); break;
             case Glyph.Close: g.DrawLine(pen, 5, 5, 19, 19); g.DrawLine(pen, 19, 5, 5, 19); break;
         }
         g.Restore(old);
-        if (Focused && ActionEnabled) ControlPaint.DrawFocusRectangle(g, new Rectangle(4, 4, Width - 8, Height - 8));
+        if (Selected || (Focused && ActionEnabled))
+        {
+            using var marker = new Pen(GlassTeal.Accent, Math.Max(2, DeviceDpi / 96f * 2)) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+            g.DrawLine(marker, Width * .35f, Height - 2, Width * .65f, Height - 2);
+        }
     }
 }
 

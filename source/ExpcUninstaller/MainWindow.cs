@@ -7,6 +7,7 @@ namespace ExpcUninstaller;
 internal sealed class ProgramGrid : DataGridView
 {
     public ProgramGrid() { DoubleBuffered = true; }
+    protected override bool ShowFocusCues => false;
     protected override void OnMouseWheel(MouseEventArgs e)
     {
         if (RowCount == 0) return;
@@ -68,9 +69,12 @@ internal sealed partial class MainWindow : Form
         _delete.Click += async (_, _) => await RunSelected(0);
         _refresh = AddAction(Glyph.Refresh, UiText.RefreshHint, true);
         _refresh.Click += async (_, _) => await LoadCatalog(true);
-        AddAction(Glyph.Update, UiText.CheckVersions + " — " + UiText.Disabled, false);
-        AddAction(Glyph.Theme, UiText.ThemeHint, false);
-        AddAction(Glyph.Language, UiText.LanguageHint, false);
+        _check = AddAction(Glyph.Update, UiText.CheckVersions, true);
+        _check.Click += async (_, _) => await CheckVersions(_visible.ToArray());
+        var theme = AddAction(Glyph.Theme, UiText.Theme, true);
+        theme.Click += (_, _) => PickAppearance(theme, false);
+        var language = AddAction(Glyph.Language, UiText.Language, true);
+        language.Click += (_, _) => PickAppearance(language, true);
         _programs = AddAction(Glyph.Programs, UiText.Programs, true);
         _store = AddAction(Glyph.Store, UiText.StoreHint, true);
         _programs.Selected = true;
@@ -81,12 +85,16 @@ internal sealed partial class MainWindow : Form
         AddCaption(Glyph.Close, UiText.Close, Close);
         BuildGrid();
         BuildSearch();
+        RefreshMenus();
+        Theme.Apply(this);
+        _grid.ColumnWidthChanged += ColumnResized;
+        Microsoft.Win32.SystemEvents.UserPreferenceChanged += WindowsThemeChanged;
         KeyPreview = true;
         KeyDown += async (_, e) =>
         {
-            if (e.KeyCode == Keys.F5) { e.Handled = true; await LoadCatalog(true); }
-            if (e.Control && e.KeyCode == Keys.F) { _search.Focus(); e.Handled = true; }
             if (e.Control && e.KeyCode == Keys.Tab) { e.Handled = true; await SwitchTab(1 - _tab); }
+            if (e.KeyCode == Keys.F5 && e.Modifiers == Keys.None) { e.Handled = true; await LoadCatalog(true); }
+            if (e.Control && e.KeyCode == Keys.F) { _search.Focus(); e.Handled = true; }
             if (e.KeyCode == Keys.Escape && _search.Focused) { _search.Clear(); e.Handled = true; }
         };
         Shown += async (_, _) =>
@@ -146,18 +154,20 @@ internal sealed partial class MainWindow : Form
         var file = Top(UiText.Menus[0]);
         file.DropDownItems.Add(UiText.Exit, null, (_, _) => Close());
         var actions = Top(UiText.Menus[1]);
-        for (var i = 0; i < 4; i++) actions.DropDownItems.Add(ActionItem(i));
-        actions.DropDownItems.Add(DisabledItem(UiText.CheckVersions));
+        AddActions(actions.DropDownItems);
         actions.DropDownOpening += (_, _) => UpdateActionState();
-        actions.DropDownItems.Add(UiText.Refresh, null, async (_, _) => await LoadCatalog(true));
         var view = Top(UiText.Menus[2]);
+        view.DropDownItems.Add(new ToolStripMenuItem(UiText.Refresh, null, async (_, _) => await LoadCatalog(true)) { ShortcutKeyDisplayString = "F5" });
+        view.DropDownItems.Add(UiText.Search, null, (_, _) => _search.Focus());
+        view.DropDownItems.Add(new ToolStripSeparator());
         view.DropDownItems.Add(UiText.Programs, null, async (_, _) => await SwitchTab(0));
         view.DropDownItems.Add(UiText.Store, null, async (_, _) => await SwitchTab(1));
-        view.DropDownItems.Add(DisabledItem(UiText.Theme));
-        view.DropDownItems.Add(DisabledItem(UiText.Language));
+        view.DropDownItems.Add(new ToolStripSeparator());
+        view.DropDownItems.Add(UiText.Theme, null, (_, _) => PickAppearance(_actions[3], false));
+        view.DropDownItems.Add(UiText.Language, null, (_, _) => PickAppearance(_actions[4], true));
+        view.DropDownItems.Add(L.T("ResetColumns"), null, (_, _) => { Program.Settings.ColumnWidths = []; SizeColumns(); SavePreferences(); });
         var help = Top(UiText.Menus[3]);
-        help.DropDownItems.Add(DisabledItem(UiText.Attribution));
-        help.DropDownItems.Add(DisabledItem(UiText.License));
+        help.DropDownItems.Add(L.T("About"), null, (_, _) => { using var dialog = new DetailWindow(UiText.Title, UiText.Attribution + "\n.NET 10 · win-x64\nApache 2.0 · Licence.txt / NOTICE", null); dialog.ShowDialog(this); });
         MainMenuStrip = _menu;
         Controls.Add(_menu);
     }
@@ -172,7 +182,8 @@ internal sealed partial class MainWindow : Form
         _grid.VirtualMode = true;
         _grid.AllowUserToAddRows = _grid.AllowUserToDeleteRows = _grid.AllowUserToResizeRows = false;
         _grid.AllowUserToOrderColumns = false;
-        _grid.AllowUserToResizeColumns = false;
+        _grid.AllowUserToResizeColumns = true;
+        _grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
         _grid.MultiSelect = false;
         _grid.ScrollBars = ScrollBars.None;
         _grid.Scroll += (_, _) => SyncScroll();
@@ -186,8 +197,8 @@ internal sealed partial class MainWindow : Form
         _grid.BorderStyle = BorderStyle.None;
         _grid.BackgroundColor = GlassTeal.Background;
         _grid.GridColor = GlassTeal.Border;
-        _grid.CellBorderStyle = DataGridViewCellBorderStyle.Single;
-        _grid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.Single;
+        _grid.CellBorderStyle = DataGridViewCellBorderStyle.None;
+        _grid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.None;
         _grid.EnableHeadersVisualStyles = false;
         _grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
         _grid.DefaultCellStyle = new DataGridViewCellStyle
@@ -209,9 +220,11 @@ internal sealed partial class MainWindow : Form
             Padding = new Padding(S(8), 0, 0, 0),
             SelectionBackColor = GlassTeal.Surface
         };
-        foreach (var header in UiText.Columns) _grid.Columns.Add(new DataGridViewTextBoxColumn
+
+        for (var i = 0; i < UiText.Columns.Length; i++) _grid.Columns.Add(new DataGridViewTextBoxColumn
         {
-            HeaderText = header,
+            HeaderText = UiText.Columns[i],
+
             SortMode = DataGridViewColumnSortMode.Programmatic
         });
         _grid.CellValueNeeded += (_, e) =>
@@ -224,15 +237,15 @@ internal sealed partial class MainWindow : Form
                 1 => UiText.Size(row.SizeBytes),
                 2 => row.Installed?.ToString("dd.MM.yyyy") ?? UiText.Empty,
                 3 => string.IsNullOrWhiteSpace(row.Version) ? UiText.Empty : row.Version,
-                4 => "?",
-                _ => UiText.Empty
+                4 => StatusName(ResultFor(row)?.State ?? VersionState.Unchecked),
+                _ => ResultFor(row)?.Latest is { Length: > 0 } latest ? latest : UiText.Empty
             };
         };
         _grid.CellToolTipTextNeeded += (_, e) =>
         {
             if (e.RowIndex < 0 || e.RowIndex >= _visible.Count) return;
             var row = _visible[e.RowIndex];
-            e.ToolTipText = e.ColumnIndex is 4 or 5 ? UiText.Unknown : row.Name + "\n" + row.Publisher + "\n" + row.Version;
+            e.ToolTipText = e.ColumnIndex is 4 or 5 ? StatusName(ResultFor(row)?.State ?? VersionState.Unchecked) + "\n" + L.T("ClickDetails") : row.Name + "\n" + row.Publisher + "\n" + row.Version + "\n" + (_grid[e.ColumnIndex, e.RowIndex].Value?.ToString() ?? "");
         };
         _grid.ColumnHeaderMouseClick += (_, e) =>
         {
@@ -241,15 +254,7 @@ internal sealed partial class MainWindow : Form
             ApplyView(false);
         };
         _grid.CellPainting += PaintCell;
-        var context = new ContextMenuStrip
-        {
-            Renderer = new GlassRenderer(),
-            BackColor = GlassTeal.Surface,
-            ForeColor = GlassTeal.Text,
-            ShowItemToolTips = true
-        };
-        for (var i = 0; i < UiText.ContextActions.Length; i++) context.Items.Add(i < 8 ? ActionItem(i) : DisabledItem(UiText.ContextActions[i]));
-        context.Opening += (_, _) => UpdateActionState();
+        _grid.CellClick += (_, e) => { if (e.ColumnIndex is 4 or 5 && e.RowIndex >= 0 && e.RowIndex < _visible.Count) ShowVersion(_visible[e.RowIndex]); };
         _grid.SelectionChanged += (_, _) => UpdateActionState();
         _grid.CellMouseDown += (_, e) =>
         {
@@ -257,7 +262,6 @@ internal sealed partial class MainWindow : Form
             if (e.RowIndex >= 0) _grid.CurrentCell = _grid[0, e.RowIndex];
             else { _grid.CurrentCell = null; _grid.ClearSelection(); }
         };
-        _grid.ContextMenuStrip = context;
         Controls.Add(_grid);
     }
 
@@ -303,10 +307,7 @@ internal sealed partial class MainWindow : Form
         _grid.RowTemplate.Height = S(29);
         foreach (DataGridViewRow row in _grid.Rows) row.Height = S(29);
         _grid.DefaultCellStyle.Padding = new Padding(S(9), 0, S(3), 0);
-        var available = _grid.ClientSize.Width - 2;
-        int[] widths = [0, S(91), S(126), S(100), S(73), S(80)];
-        widths[0] = Math.Max(S(120), available - widths.Sum());
-        for (var i = 0; i < 6; i++) _grid.Columns[i].Width = widths[i];
+        SizeColumns();
         _searchBox.SetBounds(S(11), ClientSize.Height - S(60), ClientSize.Width - S(22), S(29));
         _search.SetBounds(S(32), Math.Max(2, (_searchBox.Height - _search.PreferredHeight) / 2), _searchBox.Width - S(40), _search.PreferredHeight);
         ResumeLayout();
@@ -384,6 +385,12 @@ internal sealed partial class MainWindow : Form
         var selected = preserveSelection && _grid.SelectedRows.Count > 0 && _grid.CurrentRow?.Index is int n && n >= 0 && n < _visible.Count
             ? _visible[n].Id : null;
         _visible = CatalogView.Select(_catalogs[_tab]?.Entries ?? [], _search.Text, _sortColumn, _descending);
+        if (_sortColumn is 4 or 5)
+        {
+            Func<AppEntry, string> key = x => _sortColumn == 4 ? StatusName(ResultFor(x)?.State ?? VersionState.Unchecked) : ResultFor(x)?.Latest ?? "";
+            var comparer = Comparer<string>.Create((a, b) => _sortColumn == 5 ? ReleaseVersion.Compare(a, b) ?? StringComparer.CurrentCultureIgnoreCase.Compare(a, b) : StringComparer.CurrentCultureIgnoreCase.Compare(a, b));
+            _visible = (_descending ? _visible.OrderByDescending(key, comparer) : _visible.OrderBy(key, comparer)).ThenBy(x => x.Name).ToList();
+        }
         _grid.RowCount = _visible.Count;
         for (var i = 0; i < 6; i++) _grid.Columns[i].HeaderCell.SortGlyphDirection = i == _sortColumn
             ? _descending ? SortOrder.Descending : SortOrder.Ascending : SortOrder.None;
@@ -402,9 +409,13 @@ internal sealed partial class MainWindow : Form
 
     private void PaintCell(object? sender, DataGridViewCellPaintingEventArgs e)
     {
-        if (e.RowIndex < 0 || e.RowIndex >= _visible.Count || e.ColumnIndex is not (0 or 4)) return;
+        if (e.RowIndex < 0 || e.RowIndex >= _visible.Count || e.ColumnIndex is not (0 or 4))
+        {
+            e.Paint(e.ClipBounds, e.PaintParts & ~DataGridViewPaintParts.Border & ~DataGridViewPaintParts.Focus);
+            e.Handled = true;
+            return;
+        }
         e.PaintBackground(e.ClipBounds, true);
-        e.Paint(e.ClipBounds, DataGridViewPaintParts.Border);
         var g = e.Graphics!;
         var bounds = e.CellBounds;
         var graphicsState = g.Save();
@@ -413,13 +424,15 @@ internal sealed partial class MainWindow : Form
         {
             g.SmoothingMode = SmoothingMode.AntiAlias;
             var r = new Rectangle(bounds.X + (bounds.Width - S(18)) / 2, bounds.Y + (bounds.Height - S(18)) / 2, S(18), S(18));
-            using var brush = new LinearGradientBrush(r, GlassTeal.StatusTop, GlassTeal.StatusBottom, 90f);
+            var state = ResultFor(_visible[e.RowIndex])?.State ?? VersionState.Unchecked;
+            var color = state switch { VersionState.Current => Color.FromArgb(69, 143, 97), VersionState.Update => Color.FromArgb(190, 139, 43), VersionState.EndOfSupport => Color.FromArgb(156, 74, 91), VersionState.Error => Color.FromArgb(180, 88, 62), VersionState.Manual => Color.FromArgb(107, 108, 164), _ => Color.FromArgb(78, 102, 118) };
+            using var brush = new SolidBrush(color);
             g.FillEllipse(brush, r);
             using var pen = new Pen(GlassTeal.Muted);
             g.DrawEllipse(pen, r);
-            using var textBrush = new SolidBrush(GlassTeal.Text);
+            using var textBrush = new SolidBrush(Color.White);
             using var centered = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-            g.DrawString("?", Font, textBrush, r, centered);
+            g.DrawString(state switch { VersionState.Current => "=", VersionState.Update => "↑", VersionState.Error => "!", VersionState.EndOfSupport => "×", VersionState.Manual => "i", VersionState.Cancelled => "–", _ => "?" }, Font, textBrush, r, centered);
         }
         else
         {
@@ -519,6 +532,7 @@ internal sealed partial class MainWindow : Form
     {
         if (disposing)
         {
+            Microsoft.Win32.SystemEvents.UserPreferenceChanged -= WindowsThemeChanged;
             _lifetime.Cancel();
             foreach (var icon in _icons.Values) icon?.Dispose();
             _applicationIcon.Dispose();
