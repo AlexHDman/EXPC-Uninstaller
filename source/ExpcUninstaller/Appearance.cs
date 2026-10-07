@@ -50,15 +50,17 @@ internal static class UiText
 
 internal static class GlassTeal
 {
-    public static Color Background => Theme.Light ? Color.FromArgb(246, 247, 248) : Theme.Selected == "Glass Amber" ? Color.FromArgb(30, 31, 32) : Color.FromArgb(27, 32, 36);
-    public static Color Surface => Theme.Blend(Background, Theme.Accent, Theme.Light ? .09f : .12f);
-    public static Color Stripe => Theme.Light ? Color.FromArgb(234, 237, 239) : Theme.Selected == "Glass Amber" ? Color.FromArgb(36, 37, 38) : Color.FromArgb(32, 38, 42);
-    public static Color Border => Theme.Light ? Color.FromArgb(191, 202, 207) : Theme.Selected == "Glass Amber" ? Color.FromArgb(65, 63, 58) : Color.FromArgb(48, 65, 72);
+    public static bool Amber => Theme.Selected == "Glass Amber";
+    public static Color Heading => Amber ? Color.FromArgb(255, 202, 74) : Text;
+    public static Color Background => Theme.Light ? Color.FromArgb(246, 247, 248) : Amber ? Color.FromArgb(32, 29, 24) : Color.FromArgb(27, 32, 36);
+    public static Color Surface => Amber ? Color.FromArgb(74, 53, 25) : Theme.Blend(Background, Theme.Accent, Theme.Light ? .09f : .12f);
+    public static Color Stripe => Theme.Light ? Color.FromArgb(234, 237, 239) : Amber ? Color.FromArgb(40, 36, 29) : Color.FromArgb(32, 38, 42);
+    public static Color Border => Theme.Light ? Color.FromArgb(191, 202, 207) : Amber ? Color.FromArgb(139, 100, 40) : Color.FromArgb(48, 65, 72);
     public static Color Text => Theme.Light ? Color.FromArgb(28, 36, 42) : Color.FromArgb(230, 241, 245);
     public static Color Muted => Theme.Light ? Color.FromArgb(84, 101, 112) : Theme.Selected == "Glass Amber" ? Color.FromArgb(172, 170, 162) : Color.FromArgb(136, 164, 176);
     public static Color Accent => Theme.Accent;
-    public static Color Selection => Theme.Blend(Background, Theme.Accent, .24f);
-    public static Color Caption => Theme.Blend(Background, Theme.Accent, .14f);
+    public static Color Selection => Amber ? Color.FromArgb(122, 83, 24) : Theme.Blend(Background, Theme.Accent, .24f);
+    public static Color Caption => Amber ? Color.FromArgb(91, 63, 25) : Theme.Blend(Background, Theme.Accent, .14f);
     public static readonly Color StatusTop = Color.FromArgb(84, 110, 125);
     public static readonly Color StatusBottom = Color.FromArgb(40, 60, 73);
     public static readonly Color ButtonSelected = Color.FromArgb(25, 103, 118);
@@ -241,7 +243,7 @@ internal sealed class GlassRenderer : ToolStripProfessionalRenderer
     }
     protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
     {
-        e.TextColor = e.Item.Enabled ? GlassTeal.Text : GlassTeal.Muted;
+        e.TextColor = e.Item.Enabled ? GlassTeal.Heading : GlassTeal.Muted;
         base.OnRenderItemText(e);
     }
     protected override void OnRenderImageMargin(ToolStripRenderEventArgs e) { }

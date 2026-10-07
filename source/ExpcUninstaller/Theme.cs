@@ -20,7 +20,7 @@ internal static class Theme
         Light = Selected == "Windows Light" || Selected == "Windows" && windowsLight;
         Accent = Selected switch
         {
-            "Glass Blue" => Color.FromArgb(98, 159, 219), "Glass Amber" => Color.FromArgb(210, 166, 84),
+            "Glass Blue" => Color.FromArgb(98, 159, 219), "Glass Amber" => Color.FromArgb(255, 191, 48),
             "Glass Ruby" => Color.FromArgb(204, 107, 129), "Graphite" => Color.FromArgb(154, 168, 178),
             _ => Color.FromArgb(68, 174, 175)
         };
@@ -32,6 +32,17 @@ internal static class Theme
         control.BackColor = GlassTeal.Background; control.ForeColor = GlassTeal.Text;
         foreach (Control child in control.Controls) Apply(child);
         if (control is GlassButton) control.BackColor = Color.Transparent;
+        if (GlassTeal.Amber)
+        {
+            if (control is Label or Button or ToolStrip) control.ForeColor = GlassTeal.Heading;
+            if (control is TextBoxBase or ComboBox or ToolStrip or Button) control.BackColor = GlassTeal.Surface;
+            if (control is Button button)
+            {
+                button.FlatStyle = FlatStyle.Flat; button.FlatAppearance.BorderColor = GlassTeal.Border;
+                button.FlatAppearance.MouseOverBackColor = GlassTeal.Selection;
+            }
+        }
+        else if (control is Button button) button.FlatStyle = FlatStyle.Standard;
         if (control is DataGridView grid)
         {
             grid.BackgroundColor = GlassTeal.Background;
@@ -40,7 +51,7 @@ internal static class Theme
             grid.RowsDefaultCellStyle.BackColor = GlassTeal.Background; grid.RowsDefaultCellStyle.ForeColor = GlassTeal.Text;
             grid.RowsDefaultCellStyle.SelectionBackColor = GlassTeal.Selection; grid.RowsDefaultCellStyle.SelectionForeColor = GlassTeal.Text;
             grid.AlternatingRowsDefaultCellStyle.BackColor = GlassTeal.Stripe;
-            grid.ColumnHeadersDefaultCellStyle.BackColor = GlassTeal.Surface; grid.ColumnHeadersDefaultCellStyle.ForeColor = GlassTeal.Text;
+            grid.ColumnHeadersDefaultCellStyle.BackColor = GlassTeal.Surface; grid.ColumnHeadersDefaultCellStyle.ForeColor = GlassTeal.Heading;
             grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = GlassTeal.Surface;
         }
         control.Invalidate(true);

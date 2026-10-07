@@ -110,9 +110,8 @@ internal sealed partial class MainWindow : Form
         };
         Shown += async (_, _) =>
         {
-            var area = Screen.FromControl(this).WorkingArea;
-            Size = new Size(Math.Min(S(720), area.Width), Math.Min(S(940), area.Height));
-            Location = new Point(area.Left + (area.Width - Width) / 2, area.Top + (area.Height - Height) / 2);
+            RestorePlacement();
+            Theme.Apply(this);
             _shown = true;
             LayoutShell();
             Update();
@@ -294,7 +293,7 @@ internal sealed partial class MainWindow : Form
         _searchBox.Resize += (_, _) => _searchBox.Invalidate();
         _searchBox.Paint += (_, e) =>
         {
-            using var pen = new Pen(GlassTeal.Border);
+            using var pen = new Pen(_search.Focused ? GlassTeal.Accent : GlassTeal.Border);
             e.Graphics.DrawRectangle(pen, 0, 0, _searchBox.Width - 1, _searchBox.Height - 1);
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
             using var icon = new Pen(GlassTeal.Muted, S(1.5f));
@@ -308,6 +307,8 @@ internal sealed partial class MainWindow : Form
         _search.PlaceholderText = UiText.Search;
         _search.AccessibleName = UiText.Search;
         _search.TextChanged += (_, _) => ApplyView(false);
+        _search.GotFocus += (_, _) => _searchBox.Invalidate();
+        _search.LostFocus += (_, _) => _searchBox.Invalidate();
         _searchBox.Controls.Add(_search);
         Controls.Add(_searchBox);
     }
@@ -318,9 +319,9 @@ internal sealed partial class MainWindow : Form
     {
         if (_actions.Count != 8 || _caption.Count != 3) return;
         SuspendLayout();
-        MinimumSize = new Size(S(640), S(440));
         var menuWidth = Math.Max(S(270), _menu.Items.Cast<ToolStripItem>().Sum(x => x.GetPreferredSize(Size.Empty).Width) + S(16));
-        MinimumSize = new Size(Math.Max(S(640), menuWidth + S(320)), S(440));
+        var work = Screen.FromControl(this).WorkingArea;
+        MinimumSize = new Size(Math.Min(work.Width, Math.Max(S(640), menuWidth + S(320))), Math.Min(work.Height, S(440)));
         _menu.SetBounds(S(8), S(42), menuWidth, S(30));
         _menu.Padding = new Padding(S(6), 0, 0, 0);
         for (var i = 0; i < 3; i++) _caption[i].SetBounds(ClientSize.Width - S(138 - i * 46), S(1), S(44), S(32));
@@ -502,9 +503,9 @@ internal sealed partial class MainWindow : Form
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
-        GlassTeal.Fill(e.Graphics, new Rectangle(0, 0, Width, S(35)), GlassTeal.Caption, GlassTeal.Background);
-        GlassTeal.Fill(e.Graphics, new Rectangle(0, S(35), Width, S(45)), GlassTeal.Surface, GlassTeal.Background);
-        GlassTeal.Fill(e.Graphics, new Rectangle(0, Height - S(27), Width, S(27)), GlassTeal.Surface, GlassTeal.Background);
+        GlassTeal.Fill(e.Graphics, new Rectangle(0, 0, Width, S(35)), GlassTeal.Caption, GlassTeal.Amber ? GlassTeal.Surface : GlassTeal.Background);
+        GlassTeal.Fill(e.Graphics, new Rectangle(0, S(35), Width, S(45)), GlassTeal.Surface, GlassTeal.Amber ? GlassTeal.Caption : GlassTeal.Background);
+        GlassTeal.Fill(e.Graphics, new Rectangle(0, Height - S(27), Width, S(27)), GlassTeal.Surface, GlassTeal.Amber ? GlassTeal.Caption : GlassTeal.Background);
         using var pen = new Pen(GlassTeal.Border);
         e.Graphics.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
         e.Graphics.DrawLine(pen, 0, S(35), Width, S(35));
@@ -513,7 +514,7 @@ internal sealed partial class MainWindow : Form
         e.Graphics.DrawLine(pen, 0, Height - S(27), Width, Height - S(27));
         e.Graphics.DrawIcon(_applicationIcon, new Rectangle(S(12), S(6), S(24), S(24)));
         using var titleFont = new Font(Font.FontFamily, 11f);
-        TextRenderer.DrawText(e.Graphics, UiText.Title, titleFont, new Rectangle(S(43), 0, S(170), S(35)), GlassTeal.Text,
+        TextRenderer.DrawText(e.Graphics, UiText.Title, titleFont, new Rectangle(S(43), 0, S(170), S(35)), GlassTeal.Heading,
             TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
         var count = UiText.Count(_visible.Count, _catalogs[_tab]?.Entries.Count ?? 0);
         TextRenderer.DrawText(e.Graphics, count, Font, new Rectangle(S(13), Height - S(25), Width / 2, S(22)), GlassTeal.Text,

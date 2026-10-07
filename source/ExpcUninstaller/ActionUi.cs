@@ -135,6 +135,7 @@ internal sealed partial class MainWindow
     }
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        SavePlacement();
         if (e.CloseReason == CloseReason.UserClosing && !_exitRequested)
         { e.Cancel = true; SavePreferences(); Hide(); return; }
         _vault.Lock();
