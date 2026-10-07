@@ -6,7 +6,7 @@
     <AssemblyName>EXPC-Uninstaller</AssemblyName>
     <RootNamespace>ExpcUninstaller</RootNamespace>
     <Product>EXPC Uninstaller</Product>
-    <AssemblyTitle>EXPC Uninstaller — EXPC-002</AssemblyTitle>
+    <AssemblyTitle>EXPC Uninstaller</AssemblyTitle>
     <ApplicationIcon>..\..\assets\icon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <OutputPath>..\..\bin\EXPC\$(Configuration)\$(Platform)\</OutputPath>

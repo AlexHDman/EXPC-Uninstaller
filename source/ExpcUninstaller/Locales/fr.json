@@ -25,7 +25,7 @@
   "Maximize": "Agrandir / restaurer",
   "Close": "Fermer",
   "Exit": "Quitter",
-  "Attribution": "EXPC-002 · basé sur BCU / Marcin Szeniak",
+  "Attribution": "basé sur BCU / Marcin Szeniak",
   "ReadFailed": "Impossible de lire la liste",
   "ReadErrors": "Erreurs de lecture : {0}",
   "RefreshFailed": "Échec de l’actualisation ; liste précédente conservée",

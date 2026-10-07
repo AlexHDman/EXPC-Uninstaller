@@ -12,7 +12,14 @@ internal static class L
     private static Dictionary<string, string> Read(string language)
     {
         using var stream = typeof(L).Assembly.GetManifestResourceStream($"Expc.Locale.{language}.json");
-        return stream == null ? [] : JsonSerializer.Deserialize<Dictionary<string, string>>(stream)!;
+        var result = stream == null ? new Dictionary<string, string>() : JsonSerializer.Deserialize<Dictionary<string, string>>(stream)!;
+        using var extra = typeof(L).Assembly.GetManifestResourceStream("Expc.Locale.updates.json");
+        if (extra != null)
+        {
+            var index = Array.IndexOf(new[] { "ru", "en", "de", "fr", "es", "it", "pt" }, language);
+            foreach (var pair in JsonSerializer.Deserialize<Dictionary<string, string[]>>(extra)!) result[pair.Key] = pair.Value[index];
+        }
+        return result;
     }
     public static void Select(string language)
     {

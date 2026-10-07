@@ -7,7 +7,9 @@ internal sealed partial class MainWindow
     private readonly List<VersionRule> _rules = VersionChecker.Rules();
     private readonly Dictionary<string, VersionRule> _bindings = PortableData.Load<Dictionary<string, VersionRule>>("sources");
     private readonly Dictionary<string, VersionResult> _versions = PortableData.Load<Dictionary<string, VersionResult>>("versions");
+    private readonly PackageManagers _managers = new();
     private CancellationTokenSource? _versionCancellation;
+    private bool _lastCheckCancelled;
     private GlassButton _check = null!;
     private ContextMenuStrip _context = null!;
     private bool _layoutColumns;
@@ -15,7 +17,7 @@ internal sealed partial class MainWindow
     private void WindowsThemeChanged(object sender, Microsoft.Win32.UserPreferenceChangedEventArgs e)
     {
         if (Theme.Selected != "Windows" || IsDisposed || !IsHandleCreated) return;
-        BeginInvoke(() => { if (!IsDisposed) { Theme.Select("Windows"); Theme.Apply(this); } });
+        BeginInvoke(() => { if (!IsDisposed) { Theme.Select("Windows"); ApplyThemeToWindows(); } });
     }
     private VersionRule? RuleFor(AppEntry app) => _bindings.GetValueOrDefault(PortableData.Identity(app)) ?? VersionChecker.Resolve(app, _rules);
     private VersionResult? ResultFor(AppEntry app)
@@ -24,10 +26,28 @@ internal sealed partial class MainWindow
         return value?.Installed == app.Version && value.RuleStamp == (RuleFor(app)?.Stamp ?? "") ? value : null;
     }
     private static string StatusName(VersionState state) => L.T("Status" + state);
+    internal static VersionState DisplayState(VersionResult? result) => result == null ? VersionState.Unchecked
+        : result.State == VersionState.Update && !result.CanInstall ? VersionState.Manual : result.State;
+    private async Task CheckAllPrograms()
+    {
+        if (_operationBusy) return;
+        if (_versionCancellation != null) { _versionCancellation.Cancel(); return; }
+        var catalog = _catalogs[0] ?? await Task.Run(FastCatalog.ReadRegistry);
+        _catalogs[0] = catalog;
+        await CheckVersions(catalog.Entries);
+        if (!_lifetime.IsCancellationRequested && !_lastCheckCancelled && _versions.Values.Any(x => x.CanInstall)) ShowUpdates();
+    }
+    private void ShowManagers()
+    {
+        using var dialog = new DetailWindow(L.T("PackageManagers"), _managers.Availability.Count == 0 ? L.T("NoCheck")
+            : string.Join(Environment.NewLine, _managers.Availability.Select(x => x.Key + ": " + x.Value)), null);
+        dialog.ShowDialog(this);
+    }
     private async Task CheckVersions(IEnumerable<AppEntry> entries)
     {
         if (_versionCancellation != null) { _versionCancellation.Cancel(); return; }
         var apps = entries.ToArray(); if (apps.Length == 0) return;
+        _lastCheckCancelled = false;
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         _versionCancellation = cancellation;
         var completed = 0;
@@ -36,6 +56,13 @@ internal sealed partial class MainWindow
         using var slots = new SemaphoreSlim(3);
         try
         {
+            _status = L.T("CheckingManagers"); Invalidate();
+            var managerProgress = new Progress<string>(text =>
+            {
+                var matches = System.Text.RegularExpressions.Regex.Matches(text, @"(?m)^\d+/\d+\s*$", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromMilliseconds(100));
+                if (matches.Count > 0 && !_lifetime.IsCancellationRequested) { _status = L.T("CheckingManagers") + " " + matches[^1].Value.Trim(); Invalidate(); }
+            });
+            await _managers.Discover(cancellation.Token, managerProgress);
             var tasks = apps.Select(async app =>
             {
                 await slots.WaitAsync(cancellation.Token);
@@ -43,7 +70,17 @@ internal sealed partial class MainWindow
                 {
                     var key = PortableData.Identity(app); var rule = RuleFor(app); var previous = ResultFor(app);
                     // Regex/JSON parsing must not run on the UI synchronization context.
-                    var result = await Task.Run(() => new VersionChecker().Check(app, rule, cancellation.Token, previous));
+                    VersionResult result;
+                    var custom = _bindings.ContainsKey(key);
+                    if (rule?.Provider == "1c") result = await ProtectedSources.Check(app, rule, _vault, cancellation.Token);
+                    else if (custom && rule != null && rule.Provider is not ("winget" or "chocolatey" or "scoop"))
+                        result = await Task.Run(() => new VersionChecker().Check(app, rule, cancellation.Token, previous));
+                    else
+                    {
+                        result = _managers.Evaluate(app, rule, custom);
+                        if (!custom && rule != null && (result.Reason == "NoRule" || result.State == VersionState.Error))
+                            result = await Task.Run(() => new VersionChecker().Check(app, rule, cancellation.Token, previous));
+                    }
                     _versions[key] = result;
                     _status = L.F("CheckProgress", ++completed, apps.Length); Invalidate(); _grid.Invalidate();
                 }
@@ -54,31 +91,47 @@ internal sealed partial class MainWindow
         catch (OperationCanceledException) { }
         finally
         {
+            _lastCheckCancelled = cancellation.IsCancellationRequested;
             _versionCancellation = null;
             if (!_lifetime.IsCancellationRequested)
             {
                 _status = L.F(cancellation.IsCancellationRequested ? "CheckCancelled" : "CheckFinished", completed, apps.Length);
                 try { PortableData.Save("versions", _versions); } catch (Exception ex) { ShowDataError(ex); }
-                _tips.SetToolTip(_check, UiText.CheckVersions); UpdateActionState(); ApplyView(); Invalidate();
+                _tips.SetToolTip(_check, L.T("CheckAllPrograms")); UpdateActionState(); ApplyView(); Invalidate();
             }
         }
     }
     private void ShowVersion(AppEntry app)
     {
         var result = ResultFor(app); var rule = RuleFor(app);
-        var content = StatusName(result?.State ?? VersionState.Unchecked) + "\n\n" + L.T("InstalledVersion") + ": " + app.Version
+        var content = StatusName(DisplayState(result)) + "\n\n" + L.T("InstalledVersion") + ": " + app.Version
             + "\n" + L.T("FoundVersion") + ": " + (result?.Latest is { Length: > 0 } version ? version : UiText.Empty)
             + "\n" + L.T("Source") + ": " + (result?.Source ?? rule?.Url ?? UiText.Empty)
+            + "\n" + L.T("PackageManagers") + ": " + (result?.Package?.Manager ?? UiText.Empty)
             + "\n" + L.T("CheckedAt") + ": " + (result?.CheckedAt?.ToLocalTime().ToString("g") ?? UiText.Empty)
             + "\n" + L.T("AttemptedAt") + ": " + (result?.AttemptedAt.ToLocalTime().ToString("g") ?? UiText.Empty)
             + "\n" + L.T("Channel") + ": " + (rule?.Channel ?? UiText.Empty)
             + "\n" + L.T("Branch") + ": " + (rule?.Branch is { Length: > 0 } branch ? branch : L.T("Unspecified"))
             + "\n\n" + L.T(result?.Reason ?? "NoCheck") + "\n\n" + L.T(result?.Compatibility ?? rule?.Compatibility ?? "CompatibilityUnknown");
-        using var dialog = new DetailWindow(app.Name, content, rule?.Url); dialog.ShowDialog(this);
+        using var dialog = new DetailWindow(app.Name, content, rule?.Url);
+        if (result?.Reason == "NoRule")
+        {
+            var source = new Button { Text = L.T("SourceEditor"), Dock = DockStyle.Bottom, Height = 34 };
+            source.Click += (_, _) => { dialog.Close(); EditSource(app); }; dialog.Controls.Add(source); Theme.Apply(dialog);
+        }
+        dialog.ShowDialog(this);
+    }
+    private string VersionTooltip(AppEntry app)
+    {
+        var result = ResultFor(app);
+        return StatusName(DisplayState(result)) + "\n" + L.T(result?.Reason ?? "NoCheck")
+            + "\n" + app.Version + " → " + (result?.Latest is { Length: > 0 } latest ? latest : UiText.Empty)
+            + "\n" + (result?.Source ?? UiText.Empty) + "\n" + ((result?.CheckedAt ?? result?.AttemptedAt)?.ToLocalTime().ToString("g") ?? UiText.Empty)
+            + "\n" + L.T("ClickDetails");
     }
     private void EditSource(AppEntry app)
     {
-        using var dialog = new SourceWindow(app, RuleFor(app));
+        using var dialog = new SourceWindow(app, RuleFor(app), _vault, _managers);
         if (dialog.ShowDialog(this) != DialogResult.OK) return;
         var key = PortableData.Identity(app);
         var updated = new Dictionary<string, VersionRule>(_bindings);
@@ -99,26 +152,32 @@ internal sealed partial class MainWindow
     }
     private void SetTheme(string theme)
     {
-        Theme.Select(theme); Program.Settings.Theme = theme; SavePreferences(); Theme.Apply(this); RefreshMenus();
+        Theme.Select(theme); Program.Settings.Theme = theme; SavePreferences(); ApplyThemeToWindows(); RefreshMenus();
     }
+    private static void ApplyThemeToWindows() { foreach (Form form in Application.OpenForms) Theme.Apply(form); }
     private void SetLanguage(string language)
     {
         L.Select(language); Program.Settings.Language = language; SavePreferences();
         _search.PlaceholderText = UiText.Search; _search.AccessibleName = UiText.Search;
         for (var i = 0; i < 6; i++) _grid.Columns[i].HeaderText = UiText.Columns[i];
         SizeColumns();
-        string[] tips = [UiText.Delete, UiText.RefreshHint, UiText.CheckVersions, UiText.Theme, UiText.Language, UiText.Programs, UiText.StoreHint];
+        string[] tips = [UiText.Delete, UiText.RefreshHint, L.T("CheckAllPrograms"), L.T(_vault.Unlocked ? "LockVault" : "UnlockVault"), UiText.Theme, UiText.Language, UiText.Programs, UiText.StoreHint];
         for (var i = 0; i < _actions.Count; i++) { _tips.SetToolTip(_actions[i], tips[i]); _actions[i].AccessibleName = tips[i]; }
         string[] captions = [UiText.Minimize, UiText.Maximize, UiText.Close];
         for (var i = 0; i < 3; i++) { _tips.SetToolTip(_caption[i], captions[i]); _caption[i].AccessibleName = captions[i]; }
-        _status = UiText.Ready; RefreshMenus(); ApplyView(); Invalidate(true);
+        _status = UiText.Ready; RefreshMenus(); RefreshTray(); LayoutShell(); ApplyView(); Invalidate(true);
     }
     private void RefreshMenus()
     {
-        _operationMenus.Clear(); _menu.Items.Clear(); BuildMenu();
-        _context?.Dispose(); _context = new ContextMenuStrip { Renderer = new GlassRenderer(), ShowItemToolTips = true };
+        _operationMenus.Clear(); DisposeMenuImages(_menu.Items); _menu.Items.Clear(); BuildMenu();
+        if (_context != null) { DisposeMenuImages(_context.Items); _context.Dispose(); }
+        _context = new ContextMenuStrip { Renderer = new GlassRenderer(), ShowItemToolTips = true, ImageScalingSize = new Size(S(22), S(22)) };
         AddActions(_context.Items); _context.Opening += (_, _) => UpdateActionState(); _grid.ContextMenuStrip = _context;
         UpdateActionState();
+    }
+    private static void DisposeMenuImages(ToolStripItemCollection items)
+    {
+        foreach (ToolStripItem item in items) { if (item is ToolStripDropDownItem drop) DisposeMenuImages(drop.DropDownItems); item.Image?.Dispose(); item.Image = null; }
     }
     private void AddActions(ToolStripItemCollection items)
     {
@@ -192,24 +251,56 @@ internal sealed class DetailWindow : Form
 internal sealed class SourceWindow : Form
 {
     public VersionRule? Rule { get; private set; }
-    public SourceWindow(AppEntry app, VersionRule? existing)
+    public SourceWindow(AppEntry app, VersionRule? existing, SecretVault? vault = null, PackageManagers? managers = null)
     {
-        Text = L.T("SourceEditor") + " — " + app.Name; ClientSize = new Size(600, 420); MinimumSize = new Size(520, 400);
+        Text = L.T("SourceEditor") + " — " + app.Name; ClientSize = new Size(600, 480); MinimumSize = new Size(520, 400);
         AutoScaleMode = AutoScaleMode.Dpi; Font = new Font("Segoe UI", 9); StartPosition = FormStartPosition.CenterParent;
         var panel = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Padding = new Padding(12), AutoScroll = true };
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 145)); panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         var provider = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
-        string[] providers = ["page", "github", "winget", "manual"];
+        string[] providers = ["page", "github", "winget", "manual", "1c", "chocolatey", "scoop"];
         provider.Items.AddRange(providers.Select(p => L.T("Provider_" + p)).ToArray());
         provider.SelectedIndex = Math.Max(0, Array.IndexOf(providers, existing?.Provider ?? "page"));
         TextBox Field(string value) => new() { Text = value, Dock = DockStyle.Fill };
         var url = Field(existing?.Url ?? app.Metadata?.Website ?? "");
         var pattern = Field(existing?.Pattern ?? @"(?<version>\d+\.\d+(?:\.\d+)*)");
         var branch = Field(existing?.Branch ?? ""); var winget = Field(existing?.WingetId ?? "");
+        var account = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill, DisplayMember = "Label" };
+        account.Items.Add(new VaultAccount("", L.T("NoAccount"), "", "", ""));
+        if (vault?.Unlocked == true) foreach (var a in vault.Accounts) account.Items.Add(a with { Username = "", Password = "" });
+        account.SelectedIndex = 0;
+        for (var i = 0; i < account.Items.Count; i++) if (((VaultAccount)account.Items[i]!).Id == existing?.AccountId) account.SelectedIndex = i;
         var note = new Label { AutoSize = true, MaximumSize = new Size(540, 0), Text = L.T("SourceHelp"), Dock = DockStyle.Fill };
         var result = new TextBox { ReadOnly = true, Multiline = true, Dock = DockStyle.Fill, Height = 78, ScrollBars = ScrollBars.Vertical };
         void Row(string label, Control control) { var row = panel.RowCount++; panel.Controls.Add(new Label { Text = L.T(label), AutoSize = true, Padding = new Padding(0, 5, 0, 5) }, 0, row); panel.Controls.Add(control, 1, row); }
         Row("Provider", provider); Row("SourceUrl", url); Row("Extraction", pattern); Row("Branch", branch); Row("WingetId", winget);
+        Row("Accounts", account);
+        var identity = new CheckBox { Text = L.T("ConfirmManagedIdentity"), AutoSize = true, Checked = existing?.ConfirmManagedIdentity == true, MaximumSize = new Size(380, 0) };
+        Row("PackageIdentity", identity);
+        var compatibility = new CheckBox
+        {
+            Text = L.T("ConfirmCompatibility"),
+            AutoSize = true,
+            MaximumSize = new Size(380, 0),
+            Checked = existing?.ConfirmedCompatibilitySystem == PackageManagers.CompatibilitySystem && existing.ConfirmedCompatibilityVersion.Length > 0
+        };
+        Row("CompatibilityUnknown", compatibility);
+        void ProviderState()
+        {
+            var kind = providers[provider.SelectedIndex]; var managed = kind is "winget" or "chocolatey" or "scoop";
+            url.Enabled = !managed; pattern.Enabled = kind is "page" or "github" or "1c"; winget.Enabled = managed;
+            account.Enabled = kind == "1c"; identity.Enabled = compatibility.Enabled = kind is "chocolatey" or "scoop";
+        }
+        provider.SelectedIndexChanged += (_, _) => { compatibility.Checked = false; ProviderState(); };
+        winget.TextChanged += (_, _) => compatibility.Checked = false;
+        ProviderState();
+        if (managers != null)
+        {
+            var packages = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, DisplayMember = "Description", DropDownWidth = 720 };
+            foreach (var package in managers.Packages.Where(p => PackageManagers.Matches(app, p) || p.Manager != "WinGet" && p.Installed == app.Version)) packages.Items.Add(package);
+            packages.SelectedIndexChanged += (_, _) => { if (packages.SelectedItem is ManagedPackage p) { winget.Text = p.Id; provider.SelectedIndex = Array.IndexOf(providers, p.Manager.ToLowerInvariant()); } };
+            Row("ManagedPackages", packages);
+        }
         Row("Note", note); Row("TrialResult", result);
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6) };
         var cancel = new Button { Text = L.T("Cancel"), AutoSize = true, DialogResult = DialogResult.Cancel };
@@ -223,16 +314,31 @@ internal sealed class SourceWindow : Form
         {
             var address = url.Text.Trim(); var kind = providers[provider.SelectedIndex];
             if (address.StartsWith("https://github.com/", StringComparison.OrdinalIgnoreCase) && kind == "page") kind = "github";
-            VersionChecker.PublicUrl(address);
-            var known = VersionChecker.Rules().SingleOrDefault(r => r.Url.Equals(address, StringComparison.OrdinalIgnoreCase) && r.Matches(app));
-            if (known != null && pattern.Text == @"(?<version>\d+\.\d+(?:\.\d+)*)" && kind == "page") return known;
-            if (kind is "page" or "github")
+            if (kind is not ("winget" or "chocolatey" or "scoop")) VersionChecker.PublicUrl(address);
+            if (kind is "chocolatey" or "scoop" && !identity.Checked) throw new FormatException(L.T("ConfirmManagedIdentity"));
+            var known = managers?.Packages.SingleOrDefault(p => p.Id == winget.Text.Trim() && p.Manager.ToLowerInvariant() == kind);
+            if (kind is "chocolatey" or "scoop" && compatibility.Checked && known == null) throw new FormatException(L.T("NoCheck"));
+            if (kind is "page" or "github" or "1c")
             {
                 var expression = new System.Text.RegularExpressions.Regex(pattern.Text, System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromMilliseconds(200));
                 if (pattern.Text.Length > 1500 || !expression.GetGroupNames().Contains("version")) throw new FormatException(L.T("ExtractionRequired"));
             }
-            return new VersionRule { Id = "custom", Provider = kind, Url = address, Pattern = pattern.Text, Branch = branch.Text.Trim(), WingetId = winget.Text.Trim(),
-                Channel = "user-selected", Compatibility = existing?.Compatibility ?? "CompatibilityUnknown", ManualReason = existing?.ManualReason is { Length: > 0 } reason ? reason : "ManualSource" };
+            return new VersionRule
+            {
+                Id = "custom",
+                Provider = kind,
+                Url = address,
+                Pattern = pattern.Text,
+                Branch = branch.Text.Trim(),
+                WingetId = winget.Text.Trim(),
+                AccountId = kind == "1c" ? ((VaultAccount)account.SelectedItem!).Id : "",
+                ConfirmManagedIdentity = identity.Checked,
+                ConfirmedCompatibilityVersion = compatibility.Enabled && compatibility.Checked ? known?.Latest ?? "" : "",
+                ConfirmedCompatibilitySystem = compatibility.Enabled && compatibility.Checked ? PackageManagers.CompatibilitySystem : "",
+                Channel = "user-selected",
+                Compatibility = existing?.Compatibility ?? "CompatibilityUnknown",
+                ManualReason = existing?.ManualReason is { Length: > 0 } reason ? reason : "ManualSource"
+            };
         }
         save.Click += (_, _) => { try { Rule = Read(); DialogResult = DialogResult.OK; } catch (Exception ex) { result.Text = ex.Message; } };
         reset.Click += (_, _) => { Rule = null; DialogResult = DialogResult.OK; };
@@ -241,7 +347,11 @@ internal sealed class SourceWindow : Form
             test.Enabled = save.Enabled = false;
             try
             {
-                var rule = Read(); var value = await Task.Run(() => new VersionChecker().Check(app, rule, trial.Token));
+                var rule = Read(); VersionResult value;
+                if (rule.Provider is "winget" or "chocolatey" or "scoop")
+                { var probe = new PackageManagers(); await probe.Discover(trial.Token); value = probe.Evaluate(app, rule, true); }
+                else value = rule.Provider == "1c" && vault != null ? await ProtectedSources.Check(app, rule, vault, trial.Token)
+                    : await Task.Run(() => new VersionChecker().Check(app, rule, trial.Token));
                 if (!IsDisposed) result.Text = L.T("Status" + value.State) + " · " + (value.Latest.Length > 0 ? value.Latest : UiText.Empty) + "\r\n" + L.T(value.Reason);
             }
             catch (Exception ex) { if (!IsDisposed) result.Text = ex.Message; }

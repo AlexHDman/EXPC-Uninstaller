@@ -12,6 +12,8 @@ internal sealed partial class MainWindow
     private ToolStripMenuItem ActionItem(int action)
     {
         var item = new ToolStripMenuItem(UiText.ContextActions[action]);
+        item.Image = MenuGlyph(action switch { 0 => Glyph.Delete, 1 => Glyph.ForceDelete, 2 => Glyph.Junk, 3 => Glyph.RemoveEntry,
+            4 => Glyph.Folder, 5 => Glyph.Registry, 6 => Glyph.Website, 7 => Glyph.Search, 8 => Glyph.Source, _ => Glyph.Update });
         item.ShortcutKeys = action switch { 0 => Keys.Control | Keys.U, 1 => Keys.Control | Keys.Shift | Keys.U, 2 => Keys.Control | Keys.J, 4 => Keys.Control | Keys.O, 5 => Keys.Control | Keys.R, 9 => Keys.Control | Keys.F5, _ => Keys.None };
         item.Click += async (_, _) => await RunSelected(action);
         _operationMenus.Add((action, item));
@@ -133,7 +135,10 @@ internal sealed partial class MainWindow
     }
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        if (_operationBusy) { e.Cancel = true; return; }
+        if (e.CloseReason == CloseReason.UserClosing && !_exitRequested)
+        { e.Cancel = true; SavePreferences(); Hide(); return; }
+        _vault.Lock();
+        if (_operationBusy && e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; return; }
         _versionCancellation?.Cancel();
         SavePreferences();
         base.OnFormClosing(e);

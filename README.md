@@ -1,17 +1,18 @@
 ## EXPC-Uninstaller fork
 
-Текущий результат: [интерфейс, версии, темы, языки и проверки portable](docs/EXPC_COMPLETION.md).
+Текущий кандидат: [обновления, переносимое хранилище, Glass Amber и фактические ограничения проверки](docs/EXPC_UPDATES_VAULT.md).
 
 Phase 03A: [облегчённое оформление таблицы и панели](docs/EXPC_PHASE03A.md).
 
 Phase 03: [действия удаления, адресные остатки и результаты Sandbox](docs/EXPC_PHASE03.md).
 
-Оболочка EXPC: .NET 10, SDK **10.0.401** (без preview), WinForms, Glass Teal EXPC-002. [Сборка, portable ZIP и проверка чистой Windows](docs/EXPC_PHASE02A.md).
+Оболочка EXPC: .NET 10, SDK **10.0.401** (без preview), WinForms; Glass Amber — кандидат для визуальной приёмки. [История перехода на .NET 10](docs/EXPC_PHASE02A.md).
 
 ```console
-dotnet msbuild scripts/Build-ExpcPortable.proj -t:Package
-dotnet msbuild scripts/Build-ExpcPortable.proj -t:Extract
+dotnet msbuild scripts/Build-ExpcPortable.proj -t:Package,Extract -p:OutputRoot=C:\AI\EXPC-Uninstaller\artifacts\my-fresh-build
 ```
+
+OutputRoot должен отсутствовать. Скрипт не перезаписывает предыдущие сборки. Адаптер WinGet поставляется отдельным self-contained процессом; WinGet/Scoop/Chocolatey автоматически не устанавливаются.
 
 Ниже сохранена исходная документация BCU; её требования .NET 8 относятся к старым проектам BCU.
 

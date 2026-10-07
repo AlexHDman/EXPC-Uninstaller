@@ -1,5 +1,15 @@
 [
   {
+    "id": "1c-enterprise",
+    "namePattern": "^(?:1С:Предприятие|1C:Enterprise) 8(?: \\(x86-64\\))? \\(8\\.\\d+\\.\\d+\\.\\d+\\)$",
+    "publisherPattern": "^(?:1С-Софт|1C-Soft|1C|1С)$",
+    "provider": "1c",
+    "url": "https://releases.1c.ru/",
+    "pattern": "(?<version>8\\.\\d+\\.\\d+\\.\\d+)",
+    "channel": "official portal / selected platform branch",
+    "compatibility": "CompatibilityUnknown"
+  },
+  {
     "id": "cryptopro-csp",
     "namePattern": "^(?:КриптоПро|CryptoPro) CSP$",
     "publisherPattern": "^(?:Компания КриптоПро|Crypto-Pro LLC|CryptoPro LLC|ООО \"КРИПТО-ПРО\"|КРИПТО-ПРО)$",

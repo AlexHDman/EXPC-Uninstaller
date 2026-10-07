@@ -13,6 +13,11 @@ internal static class Program
         // This binary is never distributed. Refuse all fixture writes outside Windows Sandbox.
         if (!Environment.UserName.Equals("WDAGUtilityAccount", StringComparison.OrdinalIgnoreCase) ||
             !Directory.Exists(@"C:\EXPC-Test") || !File.Exists(@"C:\EXPC-Test\ALLOW-SANDBOX-TESTS")) return 99;
+        if (args.Length == 2 && args[0] == "command-fixture")
+        { await Task.Delay(args[1] == "readonly" ? 30_000 : 1000); return 0; }
+        if (args.Length == 2 && args[0] == "vault-receive") return await VaultTransport.Receive(args[1]);
+        if (args.Length == 2 && args[0] == "vault-reopen") return VaultTransport.Reopen(args[1]);
+        if (args.Length == 2 && args[0] == "manager-acceptance") return ManagerAcceptance.Run(args[1]);
         if (args.Length >= 2 && args[0] == "fixture")
         {
             var mode = args[1];
@@ -32,6 +37,8 @@ internal static class Program
         Directory.CreateDirectory(TestRoot);
         try
         {
+            if (args.Contains("command-fixtures")) return await UpdateFixture.Commands();
+            if (args.Length == 2 && args[0] == "update-fixture") return await UpdateFixture.Run(args[1]);
             if (args.Contains("store-only"))
             {
                 var manager = new Windows.Management.Deployment.PackageManager();

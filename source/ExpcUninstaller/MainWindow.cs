@@ -30,6 +30,8 @@ internal sealed partial class MainWindow : Form
     private readonly List<GlassButton> _caption = [];
     private readonly Dictionary<string, Bitmap?> _icons = new();
     private readonly HashSet<string> _iconRequests = [];
+    private readonly Bitmap _fallbackIcon = MenuGlyph(Glyph.Application);
+    private int _iconGeneration;
     private readonly SemaphoreSlim _iconSlots = new(2);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Icon _applicationIcon;
@@ -47,18 +49,24 @@ internal sealed partial class MainWindow : Form
     private readonly GlassButton _store;
     private int S(float value) => (int)Math.Round(value * DeviceDpi / 96f);
 
-    public MainWindow()
+    public MainWindow(SecretVault? vault = null)
     {
+        _vault = vault ?? new SecretVault(Path.Combine(AppContext.BaseDirectory, "accounts.expc-vault"));
         using var iconStream = Assembly.GetExecutingAssembly().GetManifestResourceStream("Expc.Icon.ico")!;
         _applicationIcon = new Icon(iconStream, 32, 32);
         Icon = _applicationIcon;
-        Text = $"{UiText.Title} — {UiText.Design}";
+        Text = UiText.Title;
         AutoScaleMode = AutoScaleMode.Dpi;
         AutoScaleDimensions = new SizeF(96, 96);
         FormBorderStyle = FormBorderStyle.None;
         BackColor = GlassTeal.Background;
         ForeColor = GlassTeal.Text;
         Font = new Font("Segoe UI", 9.5f);
+        _tips.OwnerDraw = true;
+        _tips.Draw += (_, e) => { using var background = new SolidBrush(GlassTeal.Surface); e.Graphics.FillRectangle(background, e.Bounds);
+            using var border = new Pen(GlassTeal.Border); e.Graphics.DrawRectangle(border, 0, 0, e.Bounds.Width - 1, e.Bounds.Height - 1);
+            TextRenderer.DrawText(e.Graphics, e.ToolTipText, Font, Rectangle.Inflate(e.Bounds, -6, -4), GlassTeal.Text, TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix); };
+        _tips.Popup += (_, e) => { var size = TextRenderer.MeasureText(_tips.GetToolTip(e.AssociatedControl), Font, new Size(S(600), 0), TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix); e.ToolTipSize = new Size(size.Width + 12, size.Height + 8); };
         StartPosition = FormStartPosition.CenterScreen;
         ClientSize = new Size(720, 940);
         MinimumSize = new Size(640, 440);
@@ -69,8 +77,10 @@ internal sealed partial class MainWindow : Form
         _delete.Click += async (_, _) => await RunSelected(0);
         _refresh = AddAction(Glyph.Refresh, UiText.RefreshHint, true);
         _refresh.Click += async (_, _) => await LoadCatalog(true);
-        _check = AddAction(Glyph.Update, UiText.CheckVersions, true);
-        _check.Click += async (_, _) => await CheckVersions(_visible.ToArray());
+        _check = AddAction(Glyph.Update, L.T("CheckAllPrograms"), true);
+        _check.Click += async (_, _) => await CheckAllPrograms();
+        _lock = AddAction(Glyph.Lock, L.T("UnlockVault"), true);
+        _lock.Click += (_, _) => ToggleVault();
         var theme = AddAction(Glyph.Theme, UiText.Theme, true);
         theme.Click += (_, _) => PickAppearance(theme, false);
         var language = AddAction(Glyph.Language, UiText.Language, true);
@@ -86,6 +96,7 @@ internal sealed partial class MainWindow : Form
         BuildGrid();
         BuildSearch();
         RefreshMenus();
+        InitializeVault();
         Theme.Apply(this);
         _grid.ColumnWidthChanged += ColumnResized;
         Microsoft.Win32.SystemEvents.UserPreferenceChanged += WindowsThemeChanged;
@@ -148,13 +159,19 @@ internal sealed partial class MainWindow : Form
             item.DropDown.BackColor = GlassTeal.Surface;
             item.DropDown.ForeColor = GlassTeal.Text;
             item.DropDown.ShowItemToolTips = true;
+            item.DropDown.ImageScalingSize = new Size(S(22), S(22));
             _menu.Items.Add(item);
             return item;
         }
         var file = Top(UiText.Menus[0]);
-        file.DropDownItems.Add(UiText.Exit, null, (_, _) => Close());
+        file.DropDownItems.Add(UiText.Exit, MenuGlyph(Glyph.Close), (_, _) => ExitApplication());
         var actions = Top(UiText.Menus[1]);
+        actions.DropDownItems.Add(L.T("CheckAllPrograms"), MenuGlyph(Glyph.Update), async (_, _) => await CheckAllPrograms());
+        actions.DropDownItems.Add(L.T("Updates"), MenuGlyph(Glyph.Update), (_, _) => ShowUpdates());
+        actions.DropDownItems.Add(L.T("PackageManagers"), MenuGlyph(Glyph.Programs), (_, _) => ShowManagers());
+        actions.DropDownItems.Add(new ToolStripSeparator());
         AddActions(actions.DropDownItems);
+        AddVaultMenus(actions.DropDownItems);
         actions.DropDownOpening += (_, _) => UpdateActionState();
         var view = Top(UiText.Menus[2]);
         view.DropDownItems.Add(new ToolStripMenuItem(UiText.Refresh, null, async (_, _) => await LoadCatalog(true)) { ShortcutKeyDisplayString = "F5" });
@@ -163,8 +180,8 @@ internal sealed partial class MainWindow : Form
         view.DropDownItems.Add(UiText.Programs, null, async (_, _) => await SwitchTab(0));
         view.DropDownItems.Add(UiText.Store, null, async (_, _) => await SwitchTab(1));
         view.DropDownItems.Add(new ToolStripSeparator());
-        view.DropDownItems.Add(UiText.Theme, null, (_, _) => PickAppearance(_actions[3], false));
-        view.DropDownItems.Add(UiText.Language, null, (_, _) => PickAppearance(_actions[4], true));
+        view.DropDownItems.Add(UiText.Theme, MenuGlyph(Glyph.Theme), (_, _) => PickAppearance(_actions[4], false));
+        view.DropDownItems.Add(UiText.Language, MenuGlyph(Glyph.Language), (_, _) => PickAppearance(_actions[5], true));
         view.DropDownItems.Add(L.T("ResetColumns"), null, (_, _) => { Program.Settings.ColumnWidths = []; SizeColumns(); SavePreferences(); });
         var help = Top(UiText.Menus[3]);
         help.DropDownItems.Add(L.T("About"), null, (_, _) => { using var dialog = new DetailWindow(UiText.Title, UiText.Attribution + "\n.NET 10 · win-x64\nApache 2.0 · Licence.txt / NOTICE", null); dialog.ShowDialog(this); });
@@ -185,6 +202,7 @@ internal sealed partial class MainWindow : Form
         _grid.AllowUserToResizeColumns = true;
         _grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
         _grid.MultiSelect = false;
+        _grid.ShowCellToolTips = false;
         _grid.ScrollBars = ScrollBars.None;
         _grid.Scroll += (_, _) => SyncScroll();
         _scroll.ValueChanged += (_, _) =>
@@ -237,7 +255,7 @@ internal sealed partial class MainWindow : Form
                 1 => UiText.Size(row.SizeBytes),
                 2 => row.Installed?.ToString("dd.MM.yyyy") ?? UiText.Empty,
                 3 => string.IsNullOrWhiteSpace(row.Version) ? UiText.Empty : row.Version,
-                4 => StatusName(ResultFor(row)?.State ?? VersionState.Unchecked),
+                4 => StatusName(DisplayState(ResultFor(row))),
                 _ => ResultFor(row)?.Latest is { Length: > 0 } latest ? latest : UiText.Empty
             };
         };
@@ -245,7 +263,12 @@ internal sealed partial class MainWindow : Form
         {
             if (e.RowIndex < 0 || e.RowIndex >= _visible.Count) return;
             var row = _visible[e.RowIndex];
-            e.ToolTipText = e.ColumnIndex is 4 or 5 ? StatusName(ResultFor(row)?.State ?? VersionState.Unchecked) + "\n" + L.T("ClickDetails") : row.Name + "\n" + row.Publisher + "\n" + row.Version + "\n" + (_grid[e.ColumnIndex, e.RowIndex].Value?.ToString() ?? "");
+            e.ToolTipText = e.ColumnIndex is 4 or 5 ? VersionTooltip(row) : row.Name + "\n" + row.Publisher + "\n" + row.Version + "\n" + (_grid[e.ColumnIndex, e.RowIndex].Value?.ToString() ?? "");
+        };
+        _grid.CellMouseEnter += (_, e) =>
+        {
+            if (e.RowIndex < 0 || e.RowIndex >= _visible.Count) return;
+            var row = _visible[e.RowIndex]; _tips.SetToolTip(_grid, e.ColumnIndex is 4 or 5 ? VersionTooltip(row) : row.Name + "\n" + row.Publisher + "\n" + row.Version);
         };
         _grid.ColumnHeaderMouseClick += (_, e) =>
         {
@@ -290,18 +313,19 @@ internal sealed partial class MainWindow : Form
     }
 
     protected override void OnResize(EventArgs e) { base.OnResize(e); if (_grid != null) LayoutShell(); }
-    protected override void OnDpiChanged(DpiChangedEventArgs e) { base.OnDpiChanged(e); LayoutShell(); }
+    protected override void OnDpiChanged(DpiChangedEventArgs e) { base.OnDpiChanged(e); LayoutShell(); if (_shown) RefreshMenus(); }
     private void LayoutShell()
     {
-        if (_actions.Count != 7 || _caption.Count != 3) return;
+        if (_actions.Count != 8 || _caption.Count != 3) return;
         SuspendLayout();
         MinimumSize = new Size(S(640), S(440));
-        _menu.SetBounds(S(3), S(35), ClientSize.Width - S(6), S(30));
+        var menuWidth = Math.Max(S(270), _menu.Items.Cast<ToolStripItem>().Sum(x => x.GetPreferredSize(Size.Empty).Width) + S(16));
+        MinimumSize = new Size(Math.Max(S(640), menuWidth + S(320)), S(440));
+        _menu.SetBounds(S(8), S(42), menuWidth, S(30));
         _menu.Padding = new Padding(S(6), 0, 0, 0);
         for (var i = 0; i < 3; i++) _caption[i].SetBounds(ClientSize.Width - S(138 - i * 46), S(1), S(44), S(32));
-        for (var i = 0; i < 3; i++) _actions[i].SetBounds(S(11 + i * 44), S(71), S(34), S(30));
-        for (var i = 3; i < 7; i++) _actions[i].SetBounds(ClientSize.Width - S(167 - (i - 3) * 41), S(71), S(33), S(30));
-        _grid.SetBounds(S(2), S(108), ClientSize.Width - S(17), Math.Max(S(80), ClientSize.Height - S(175)));
+        for (var i = 0; i < 8; i++) _actions[i].SetBounds(ClientSize.Width - S(300 - i * 36), S(42), S(34), S(30));
+        _grid.SetBounds(S(2), S(80), ClientSize.Width - S(17), Math.Max(S(80), ClientSize.Height - S(147)));
         _scroll.SetBounds(ClientSize.Width - S(14), _grid.Top + S(28), S(12), _grid.Height - S(28));
         _grid.ColumnHeadersHeight = S(28);
         _grid.RowTemplate.Height = S(29);
@@ -349,6 +373,7 @@ internal sealed partial class MainWindow : Form
             var result = await task;
             if (_lifetime.IsCancellationRequested) return;
             _catalogs[tab] = result;
+            if (force) { _iconGeneration++; foreach (var image in _icons.Values) image?.Dispose(); _icons.Clear(); _iconRequests.Clear(); }
             if (_tab == tab)
             {
                 _status = StatusFor(result);
@@ -387,7 +412,7 @@ internal sealed partial class MainWindow : Form
         _visible = CatalogView.Select(_catalogs[_tab]?.Entries ?? [], _search.Text, _sortColumn, _descending);
         if (_sortColumn is 4 or 5)
         {
-            Func<AppEntry, string> key = x => _sortColumn == 4 ? StatusName(ResultFor(x)?.State ?? VersionState.Unchecked) : ResultFor(x)?.Latest ?? "";
+            Func<AppEntry, string> key = x => _sortColumn == 4 ? StatusName(DisplayState(ResultFor(x))) : ResultFor(x)?.Latest ?? "";
             var comparer = Comparer<string>.Create((a, b) => _sortColumn == 5 ? ReleaseVersion.Compare(a, b) ?? StringComparer.CurrentCultureIgnoreCase.Compare(a, b) : StringComparer.CurrentCultureIgnoreCase.Compare(a, b));
             _visible = (_descending ? _visible.OrderByDescending(key, comparer) : _visible.OrderBy(key, comparer)).ThenBy(x => x.Name).ToList();
         }
@@ -424,15 +449,20 @@ internal sealed partial class MainWindow : Form
         {
             g.SmoothingMode = SmoothingMode.AntiAlias;
             var r = new Rectangle(bounds.X + (bounds.Width - S(18)) / 2, bounds.Y + (bounds.Height - S(18)) / 2, S(18), S(18));
-            var state = ResultFor(_visible[e.RowIndex])?.State ?? VersionState.Unchecked;
+            var state = DisplayState(ResultFor(_visible[e.RowIndex]));
             var color = state switch { VersionState.Current => Color.FromArgb(69, 143, 97), VersionState.Update => Color.FromArgb(190, 139, 43), VersionState.EndOfSupport => Color.FromArgb(156, 74, 91), VersionState.Error => Color.FromArgb(180, 88, 62), VersionState.Manual => Color.FromArgb(107, 108, 164), _ => Color.FromArgb(78, 102, 118) };
             using var brush = new SolidBrush(color);
             g.FillEllipse(brush, r);
             using var pen = new Pen(GlassTeal.Muted);
             g.DrawEllipse(pen, r);
+            if (ResultFor(_visible[e.RowIndex])?.CanInstall == true)
+            {
+                using var ring = new Pen(Color.FromArgb(50, 202, 110), S(1.4f));
+                g.DrawEllipse(ring, Rectangle.Inflate(r, S(3), S(3)));
+            }
             using var textBrush = new SolidBrush(Color.White);
             using var centered = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-            g.DrawString(state switch { VersionState.Current => "=", VersionState.Update => "↑", VersionState.Error => "!", VersionState.EndOfSupport => "×", VersionState.Manual => "i", VersionState.Cancelled => "–", _ => "?" }, Font, textBrush, r, centered);
+            g.DrawString(state switch { VersionState.Unchecked => "…", VersionState.Current => "=", VersionState.Update => "↑", VersionState.Error => "!", VersionState.Authentication => "●", VersionState.Ambiguous => "±", VersionState.EndOfSupport => "×", VersionState.Manual => "i", VersionState.Cancelled => "–", _ => "?" }, Font, textBrush, r, centered);
         }
         else
         {
@@ -441,9 +471,7 @@ internal sealed partial class MainWindow : Form
             if (_icons.TryGetValue(row.Id, out var bitmap) && bitmap != null) g.DrawImage(bitmap, iconBounds);
             else
             {
-                using var pen = new Pen(GlassTeal.Muted);
-                g.DrawRectangle(pen, iconBounds.X + S(2), iconBounds.Y + S(3), S(16), S(15));
-                g.DrawLine(pen, iconBounds.X + S(2), iconBounds.Y + S(7), iconBounds.Right - S(3), iconBounds.Y + S(7));
+                g.DrawImage(_fallbackIcon, iconBounds);
                 if (_rowsPainted && _iconRequests.Add(row.Id)) _ = LoadIcon(row);
             }
             var text = new Rectangle(bounds.X + S(44), bounds.Y, bounds.Width - S(49), bounds.Height);
@@ -456,13 +484,14 @@ internal sealed partial class MainWindow : Form
 
     private async Task LoadIcon(AppEntry row)
     {
+        var generation = _iconGeneration;
         try
         {
             await _iconSlots.WaitAsync(_lifetime.Token);
             Bitmap? bitmap;
-            try { bitmap = await Task.Run(() => LazyIcons.Load(row.IconPath), _lifetime.Token); }
+            try { bitmap = await Task.Run(() => LazyIcons.Load(row), _lifetime.Token); }
             finally { _iconSlots.Release(); }
-            if (_lifetime.IsCancellationRequested) { bitmap?.Dispose(); return; }
+            if (_lifetime.IsCancellationRequested || generation != _iconGeneration) { bitmap?.Dispose(); return; }
             _icons[row.Id] = bitmap;
             var index = _visible.FindIndex(x => x.Id == row.Id);
             if (index >= 0) _grid.InvalidateCell(0, index);
@@ -474,19 +503,17 @@ internal sealed partial class MainWindow : Form
     {
         base.OnPaint(e);
         GlassTeal.Fill(e.Graphics, new Rectangle(0, 0, Width, S(35)), GlassTeal.Caption, GlassTeal.Background);
-        GlassTeal.Fill(e.Graphics, new Rectangle(0, S(65), Width, S(43)), GlassTeal.Surface, GlassTeal.Background);
+        GlassTeal.Fill(e.Graphics, new Rectangle(0, S(35), Width, S(45)), GlassTeal.Surface, GlassTeal.Background);
         GlassTeal.Fill(e.Graphics, new Rectangle(0, Height - S(27), Width, S(27)), GlassTeal.Surface, GlassTeal.Background);
         using var pen = new Pen(GlassTeal.Border);
         e.Graphics.DrawRectangle(pen, 0, 0, Width - 1, Height - 1);
         e.Graphics.DrawLine(pen, 0, S(35), Width, S(35));
-        e.Graphics.DrawLine(pen, 0, S(65), Width, S(65));
-        e.Graphics.DrawLine(pen, 0, S(107), Width, S(107));
+        e.Graphics.DrawRectangle(pen, S(6), S(39), _menu.Width + S(4), S(35));
+        e.Graphics.DrawRectangle(pen, Width - S(305), S(39), S(299), S(35));
         e.Graphics.DrawLine(pen, 0, Height - S(27), Width, Height - S(27));
         e.Graphics.DrawIcon(_applicationIcon, new Rectangle(S(12), S(6), S(24), S(24)));
         using var titleFont = new Font(Font.FontFamily, 11f);
         TextRenderer.DrawText(e.Graphics, UiText.Title, titleFont, new Rectangle(S(43), 0, S(170), S(35)), GlassTeal.Text,
-            TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-        TextRenderer.DrawText(e.Graphics, UiText.Design, Font, new Rectangle(S(219), 0, S(85), S(35)), GlassTeal.Muted,
             TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
         var count = UiText.Count(_visible.Count, _catalogs[_tab]?.Entries.Count ?? 0);
         TextRenderer.DrawText(e.Graphics, count, Font, new Rectangle(S(13), Height - S(25), Width / 2, S(22)), GlassTeal.Text,
@@ -534,7 +561,11 @@ internal sealed partial class MainWindow : Form
         {
             Microsoft.Win32.SystemEvents.UserPreferenceChanged -= WindowsThemeChanged;
             _lifetime.Cancel();
+            _vault.StateChanged -= VaultStateChanged;
+            _vault.Dispose();
+            if (_tray != null) { _tray.Visible = false; _tray.ContextMenuStrip?.Dispose(); _tray.Dispose(); }
             foreach (var icon in _icons.Values) icon?.Dispose();
+            _fallbackIcon.Dispose(); DisposeMenuImages(_menu.Items); if (_context != null) DisposeMenuImages(_context.Items);
             _applicationIcon.Dispose();
             _tips.Dispose();
         }

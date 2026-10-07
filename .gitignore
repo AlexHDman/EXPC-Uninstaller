@@ -224,3 +224,4 @@ _Pvt_Extensions
 # EXPC portable local operation data
 **/local-data/
 **/startup-metrics.jsonl
+**/accounts.expc-vault*

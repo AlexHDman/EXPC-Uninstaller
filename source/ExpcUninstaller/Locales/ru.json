@@ -25,7 +25,7 @@
   "Maximize": "Развернуть / восстановить",
   "Close": "Закрыть",
   "Exit": "Выход",
-  "Attribution": "EXPC-002 · на основе BCU / Marcin Szeniak",
+  "Attribution": "на основе BCU / Marcin Szeniak",
   "ReadFailed": "Не удалось прочитать список",
   "ReadErrors": "Ошибки чтения: {0}",
   "RefreshFailed": "Сбой обновления; сохранён прежний список",

@@ -7,9 +7,15 @@ using System.Text.RegularExpressions;
 
 namespace ExpcUninstaller;
 
-internal enum VersionState { Unchecked, Unknown, Current, Update, EndOfSupport, Manual, Error, Cancelled }
+internal enum VersionState { Unchecked, Unknown, Current, Update, EndOfSupport, Manual, Error, Cancelled, Authentication, Ambiguous }
 internal sealed record VersionResult(VersionState State, string Installed, string Latest, string Source,
-    DateTimeOffset? CheckedAt, DateTimeOffset AttemptedAt, string Reason, string Compatibility, string RuleStamp);
+    DateTimeOffset? CheckedAt, DateTimeOffset AttemptedAt, string Reason, string Compatibility, string RuleStamp)
+{
+    public ManagedPackage? Package { get; init; }
+    public bool CanInstall => State == VersionState.Update && ReleaseVersion.Compare(Installed, Latest) < 0
+        && Package is { Applicable: true, IdentityConfirmed: true, Pinned: false, Error.Length: 0 }
+        && Package.Installed == Installed && Package.Latest == Latest && Package.Manager is "WinGet" or "Chocolatey" or "Scoop";
+}
 
 internal sealed record VersionRule
 {
@@ -28,6 +34,10 @@ internal sealed record VersionRule
     public string ManualReason { get; init; } = "";
     public string EndOfSupportPattern { get; init; } = "";
     public string WingetId { get; init; } = "";
+    public string AccountId { get; init; } = "";
+    public bool ConfirmManagedIdentity { get; init; }
+    public string ConfirmedCompatibilityVersion { get; init; } = "";
+    public string ConfirmedCompatibilitySystem { get; init; } = "";
     public bool Matches(AppEntry app) => !app.Store && NamePattern.Length > 0 && PublisherPattern.Length > 0
         && Match(app.Name, NamePattern) && Match(app.Publisher, PublisherPattern)
         && (KeyPattern.Length == 0 || Match(app.Metadata?.KeyName ?? app.Id, KeyPattern))
@@ -76,7 +86,8 @@ internal sealed class VersionChecker(Func<string, CancellationToken, Task<string
     {
         if (!Uri.TryCreate(input, UriKind.Absolute, out var uri) || uri.Scheme != "https" || uri.UserInfo.Length > 0
             || !uri.IsDefaultPort || uri.HostNameType != UriHostNameType.Dns || !uri.Host.Contains('.')
-            || uri.Host.EndsWith(".local", StringComparison.OrdinalIgnoreCase)) throw new FormatException(L.T("PublicHttps"));
+            || uri.Host.EndsWith(".local", StringComparison.OrdinalIgnoreCase)
+            || Regex.IsMatch(uri.Query, @"(?:[?&])(?:password|passwd|token|api[_-]?key|access[_-]?token|ticket)=", RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100))) throw new FormatException(L.T("PublicHttps"));
         return uri;
     }
     private static bool Private(IPAddress ip)
@@ -127,8 +138,17 @@ internal sealed class VersionChecker(Func<string, CancellationToken, Task<string
         if (!Regex.IsMatch(id, @"^[A-Za-z0-9][A-Za-z0-9.\-_]{2,150}$")) throw new FormatException(L.T("WingetId"));
         var exe = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "WindowsApps", "winget.exe");
         if (!File.Exists(exe)) throw new IOException(L.T("WingetUnavailable"));
-        using var process = new Process { StartInfo = new ProcessStartInfo(exe) { UseShellExecute = false, CreateNoWindow = true,
-            RedirectStandardOutput = true, RedirectStandardError = true, ArgumentList = { "show", "--id", id, "--exact", "--source", "winget", "--disable-interactivity" } } };
+        using var process = new Process
+        {
+            StartInfo = new ProcessStartInfo(exe)
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                ArgumentList = { "show", "--id", id, "--exact", "--source", "winget", "--disable-interactivity" }
+            }
+        };
         process.Start();
         var output = process.StandardOutput.ReadToEndAsync(token); var error = process.StandardError.ReadToEndAsync(token);
         try { await process.WaitForExitAsync(token); }
