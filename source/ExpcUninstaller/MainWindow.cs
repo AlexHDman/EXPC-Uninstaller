@@ -519,7 +519,7 @@ internal sealed partial class MainWindow : Form
         var count = UiText.Count(_visible.Count, _catalogs[_tab]?.Entries.Count ?? 0);
         TextRenderer.DrawText(e.Graphics, count, Font, new Rectangle(S(13), Height - S(25), Width / 2, S(22)), GlassTeal.Text,
             TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-        TextRenderer.DrawText(e.Graphics, _status, Font, new Rectangle(Width / 2, Height - S(25), Width / 2 - S(19), S(22)), GlassTeal.Text,
+        TextRenderer.DrawText(e.Graphics, _operationStatus ?? _status, Font, new Rectangle(Width / 2, Height - S(25), Width / 2 - S(19), S(22)), GlassTeal.Text,
             TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
         for (var i = 0; i < 3; i++) e.Graphics.DrawLine(pen, Width - S(5 + i * 4), Height - S(3), Width - S(3), Height - S(5 + i * 4));
     }

@@ -29,7 +29,7 @@ public sealed class DialogLanguageTests
                 var app = new AppEntry("fixture", "Example", "1.0", null, null, null, "fixture");
                 using var source = new SourceWindow(app, null);
                 using var details = new DetailWindow(L.T("Updates"), "fixture", null);
-                using var operation = new OperationWindow(app, 0, () => Task.CompletedTask);
+                using var operation = new OperationWindow(app, 1, () => Task.CompletedTask);
                 using var junk = new OperationWindow(app, 2, () => Task.CompletedTask);
                 IEnumerable<Control> Descendants(Control c) => c.Controls.Cast<Control>().SelectMany(x => new[] { x }.Concat(Descendants(x)));
                 foreach (var form in new Form[] { create, unlock, change, accounts, source, details, operation, junk })

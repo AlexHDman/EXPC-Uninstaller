@@ -1,174 +1,210 @@
+using System.Text;
+
 namespace ExpcUninstaller;
 
-// The same production dialog can be exercised without showing it or touching installed products.
 internal sealed class OperationServices
 {
     public Func<AppEntry, CancellationToken, Task<OperationResult>> Uninstall { get; init; } = ProductActions.Uninstall;
     public Func<AppEntry, List<JunkItem>> Find { get; init; } = BcuTargetedJunkAdapter.Find;
-    public Func<AppEntry, JunkItem, Task> Delete { get; init; } = BcuTargetedJunkAdapter.Delete;
     public Func<AppEntry, Task> RemoveRecord { get; init; } = RegistryBackup.RemoveRecord;
+    public Func<AppEntry, CleanupEntry, Task> DeleteEntry { get; init; } = CleanupPlan.Delete;
 }
+internal enum OperationStage { Confirm, Running, Leftovers, ConfirmCleanup, Finished }
 
-internal enum OperationStage { Confirm, Running, Result, Leftovers, ConfirmCleanup, Finished }
-
+// This form is never used to start or wait for a normal uninstall.
 internal sealed class OperationWindow : Form
 {
     private readonly AppEntry _app;
     private readonly int _action;
     private readonly OperationServices _services;
     private readonly Func<Task> _refresh;
-    private readonly CancellationTokenSource _observation = new();
-    private readonly Label _status = new() { Dock = DockStyle.Top, Height = 90, Padding = new Padding(8), AutoEllipsis = true };
-    private readonly TextBox _journal = new() { Dock = DockStyle.Bottom, Height = 110, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Visible = false };
-    private readonly DataGridView _items = new() { Dock = DockStyle.Fill, Visible = false, AllowUserToAddRows = false, AllowUserToDeleteRows = false,
-        RowHeadersVisible = false, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill, BorderStyle = BorderStyle.None,
-        CellBorderStyle = DataGridViewCellBorderStyle.None, EnableHeadersVisualStyles = false, EditMode = DataGridViewEditMode.EditProgrammatically };
+    private readonly Label _status = new() { Dock = DockStyle.Top, Height = 78, Padding = new Padding(8), AutoEllipsis = true };
+    private readonly TextBox _journal = new() { Dock = DockStyle.Bottom, Height = 125, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Visible = false };
+    private readonly TreeView _tree = new() { Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, ShowNodeToolTips = true, HideSelection = false };
     private readonly Button _primary = new() { AutoSize = true };
     private readonly Button _secondary = new() { AutoSize = true };
-    private readonly Button _details = new() { Dock = DockStyle.Bottom, Height = 30, Text = L.T("OperationDetails") };
-    private readonly ProgressBar _progress = new() { Dock = DockStyle.Top, Height = 5, Style = ProgressBarStyle.Marquee, Visible = false };
+    private readonly HashSet<CleanupEntry> _selected = [];
+    private List<CleanupEntry> _entries = [];
+    private List<CleanupEntry> _approved = [];
     private readonly Image? _image;
-    private List<JunkItem> _approved = [];
-    private bool _canFind;
-    private bool _waiting;
+    private ImageList? _states;
     internal OperationStage Stage { get; private set; } = OperationStage.Confirm;
     internal bool Running => Stage == OperationStage.Running;
     internal string Status => _status.Text;
+    internal TreeView Tree => _tree;
 
-    public OperationWindow(AppEntry app, int action, Func<Task> refresh, Image? image = null, OperationServices? services = null)
+    public OperationWindow(AppEntry app, int action, Func<Task> refresh, Image? image = null, OperationServices? services = null, List<CleanupEntry>? initial = null)
     {
+        if (action is < 1 or > 3) throw new ArgumentOutOfRangeException(nameof(action), "Normal uninstall must not open OperationWindow");
         _app = app; _action = action; _refresh = refresh; _services = services ?? new();
-        Text = UiText.Title; ClientSize = new Size(660, 360); MinimumSize = new Size(540, 320);
-        AutoScaleMode = AutoScaleMode.Dpi; Font = new Font("Segoe UI", 9); StartPosition = FormStartPosition.CenterParent;
-        MinimizeBox = true; MaximizeBox = false; TopMost = false;
+        Text = L.T("Operation19") + app.Name; ClientSize = new Size(720, 490); MinimumSize = new Size(540, 340);
+        AutoScaleMode = AutoScaleMode.Dpi; Font = new Font("Segoe UI", 10.5f); StartPosition = FormStartPosition.Manual;
+        TopMost = false; MaximizeBox = false;
         _image = image == null ? null : (Image)image.Clone();
-        var header = new Panel { Dock = DockStyle.Top, Height = 54, Padding = new Padding(8) };
+        var header = new Panel { Dock = DockStyle.Top, Height = 52, Padding = new Padding(8) };
         header.Controls.Add(new Label { Text = app.Name, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true });
         header.Controls.Add(new PictureBox { Image = _image, Dock = DockStyle.Left, Width = 40, SizeMode = PictureBoxSizeMode.Zoom, Padding = new Padding(4) });
-        _items.Columns.Add(new DataGridViewCheckBoxColumn { Width = 32, AutoSizeMode = DataGridViewAutoSizeColumnMode.None });
-        foreach (var key in new[] { "Operation22", "Operation23" }) _items.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = L.T(key), ReadOnly = true });
-        void Toggle(int index)
-        {
-            if (Stage != OperationStage.Leftovers || index < 0) return;
-            var cell = _items.Rows[index].Cells[0]; cell.Value = cell.Value is not true; UpdateButtons();
-        }
-        _items.CellMouseClick += (_, e) => { if (e.Button == MouseButtons.Left && e.ColumnIndex == 0) Toggle(e.RowIndex); };
-        _items.KeyDown += (_, e) => { if (e.KeyCode == Keys.Space && e.Modifiers == Keys.None) { e.Handled = e.SuppressKeyPress = true; Toggle(_items.CurrentRow?.Index ?? -1); } };
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6) };
         buttons.Controls.AddRange([_secondary, _primary]);
-        Controls.Add(_items); Controls.Add(_journal); Controls.Add(_details); Controls.Add(_progress); Controls.Add(_status); Controls.Add(header); Controls.Add(buttons);
-        _details.Click += (_, _) => _journal.Visible = !_journal.Visible;
+        var journalBar = new Panel { Dock = DockStyle.Bottom, Height = 40 };
+        var details = new Button { Text = L.T("OperationDetails"), Dock = DockStyle.Left, AutoSize = true, Width = 195 };
+        var actions = new FlowLayoutPanel { Dock = DockStyle.Right, AutoSize = true, WrapContents = false };
+        void JournalAction(string key, Action action)
+        {
+            var b = new Button { Text = L.T(key), AutoSize = true };
+            b.Click += (_, _) => { try { action(); } catch (Exception ex) { SetStatus(ex.Message); } };
+            actions.Controls.Add(b);
+        }
+        JournalAction("CleanupClearLog", () => _journal.Clear());
+        JournalAction("CleanupCopyLog", () => { if (_journal.TextLength > 0) Clipboard.SetText(_journal.Text); });
+        JournalAction("CleanupSaveLog", () =>
+        {
+            using var save = new SaveFileDialog { Filter = "Text (*.txt)|*.txt", FileName = "EXPC-operation.txt" };
+            if (save.ShowDialog(this) == DialogResult.OK) File.WriteAllText(save.FileName, _journal.Text, Encoding.UTF8);
+        });
+        journalBar.Controls.Add(actions); journalBar.Controls.Add(details);
+        Controls.Add(_tree); Controls.Add(_journal); Controls.Add(journalBar); Controls.Add(_status); Controls.Add(header); Controls.Add(buttons);
+        details.Click += (_, _) => _journal.Visible = !_journal.Visible;
         _primary.Click += async (_, _) => await Advance();
         _secondary.Click += (_, _) => Secondary();
+        _tree.NodeMouseClick += (_, e) => { if (e.Node != null && e.Button == MouseButtons.Left && _tree.HitTest(e.Location).Location.HasFlag(TreeViewHitTestLocations.StateImage)) Toggle(e.Node); };
+        _tree.KeyDown += (_, e) => { if (e.KeyCode == Keys.Space && e.Modifiers == Keys.None && _tree.SelectedNode is { } node) { e.Handled = e.SuppressKeyPress = true; Toggle(node); } };
         FormClosing += (_, e) => { if (Running) e.Cancel = true; };
-        SetStatus(action switch { 0 => L.T(app.Store ? "Operation4" : "Operation5"), 1 => L.T("Operation6") + app.Name + L.T("Operation7"),
-            2 => L.T("OperationFindPrompt"), 3 => L.T("Operation8") + app.Name + L.T("Operation9"), _ => throw new ArgumentOutOfRangeException(nameof(action)) });
-        Theme.Apply(this); UpdateButtons();
+        Theme.Apply(this); BuildStateImages();
+        if (initial != null) Populate(initial);
+        else SetStatus(action == 1 ? L.T("Operation6") + app.Name + L.T("Operation7") : action == 3 ? L.T("Operation8") + app.Name + L.T("Operation9") : L.T("OperationFindPrompt"));
+        UpdateButtons();
     }
-
+    internal static Rectangle Placement(Rectangle owner, Rectangle work, int dpi)
+    {
+        var width = Math.Min(work.Width, (int)(740L * dpi / 96)); var height = Math.Min(work.Height, (int)(530L * dpi / 96));
+        return new(Math.Clamp(owner.Left + (owner.Width - width) / 2, work.Left, work.Right - width),
+            Math.Clamp(owner.Top + (owner.Height - height) / 2, work.Top, work.Bottom - height), width, height);
+    }
+    internal void PositionNear(Form owner)
+    {
+        var work = Screen.FromControl(owner).WorkingArea;
+        Location = owner.Location; // move to the owner's monitor before applying its physical DPI
+        MinimumSize = Size.Empty;
+        Bounds = Placement(owner.Bounds, work, owner.DeviceDpi);
+        MinimumSize = new Size(Math.Min(work.Width, 540 * owner.DeviceDpi / 96), Math.Min(work.Height, 340 * owner.DeviceDpi / 96));
+    }
+    protected override void OnDpiChanged(DpiChangedEventArgs e) { base.OnDpiChanged(e); BuildStateImages(); }
+    private void BuildStateImages()
+    {
+        var states = new ImageList { ImageSize = new Size(Math.Max(16, 18 * DeviceDpi / 96), Math.Max(16, 18 * DeviceDpi / 96)), ColorDepth = ColorDepth.Depth32Bit };
+        for (var i = 0; i < 3; i++)
+        {
+            using var image = new Bitmap(states.ImageSize.Width, states.ImageSize.Height);
+            using var g = Graphics.FromImage(image); g.Clear(GlassTeal.Background);
+            var box = new Rectangle(1, 1, image.Width - 2, image.Height - 2);
+            ControlPaint.DrawCheckBox(g, box, i == 0 ? ButtonState.Normal : ButtonState.Checked);
+            if (i == 2) { using var b = new SolidBrush(GlassTeal.Surface); g.FillRectangle(b, Rectangle.Inflate(box, -3, -3)); using var pen = new Pen(GlassTeal.Heading, 2); g.DrawLine(pen, 4, image.Height / 2, image.Width - 4, image.Height / 2); }
+            states.Images.Add(image);
+        }
+        _tree.StateImageList = states; _states?.Dispose(); _states = states;
+    }
+    private static IEnumerable<TreeNode> Nodes(TreeNode node) => new[] { node }.Concat(node.Nodes.Cast<TreeNode>().SelectMany(Nodes));
+    private void Populate(List<CleanupEntry> entries)
+    {
+        _entries = entries; _selected.Clear(); _tree.Nodes.Clear();
+        foreach (var key in new[] { "CleanupFiles", "CleanupRegistry", "CleanupUserData" })
+        {
+            var section = _tree.Nodes.Add(L.T(key));
+            var byPath = new Dictionary<(JunkItem, string), TreeNode>();
+            foreach (var entry in entries.Where(x => x.Section == key).OrderBy(x => x.Path.Length))
+            {
+                var parent = section; var path = entry.Path;
+                while (path.LastIndexOf('\\') is var slash && slash >= 0)
+                { path = path[..slash]; if (byPath.TryGetValue((entry.Root, path.ToUpperInvariant()), out var found)) { parent = found; break; } }
+                var node = parent.Nodes.Add(entry.DisplayPath); node.Tag = entry; node.ToolTipText = entry.DisplayPath + "\n" + L.T(entry.Root.Evidence);
+                byPath[(entry.Root, entry.Path.ToUpperInvariant())] = node;
+            }
+            section.Expand();
+        }
+        Stage = OperationStage.Leftovers; SetStatus(entries.Count == 0 ? L.T("Operation20") : L.T("CleanupSelectionHelp")); UpdateStates();
+    }
+    internal void Toggle(TreeNode node)
+    {
+        if (Stage != OperationStage.Leftovers) return;
+        var entries = Nodes(node).Select(n => n.Tag).OfType<CleanupEntry>().ToList();
+        var select = entries.Any(x => !_selected.Contains(x));
+        foreach (var entry in entries) { if (select) _selected.Add(entry); else _selected.Remove(entry); }
+        UpdateStates(); UpdateButtons();
+    }
+    private void UpdateStates()
+    {
+        foreach (var node in _tree.Nodes.Cast<TreeNode>().SelectMany(Nodes))
+        {
+            var values = Nodes(node).Select(n => n.Tag).OfType<CleanupEntry>().ToList(); var count = values.Count(_selected.Contains);
+            node.StateImageIndex = count == 0 ? 0 : count == values.Count ? 1 : 2;
+        }
+        // A folder in Program files may contain protected entries shown in User data.
+        var parents = _tree.Nodes.Cast<TreeNode>().SelectMany(Nodes).Where(n => n.Tag is CleanupEntry)
+            .ToDictionary(n => ((CleanupEntry)n.Tag!).Root + "|" + ((CleanupEntry)n.Tag!).Path.ToUpperInvariant());
+        foreach (var entry in _entries.Where(e => !_selected.Contains(e)))
+        {
+            var path = entry.Path;
+            while (path.LastIndexOf('\\') is var slash && slash >= 0)
+            {
+                path = path[..slash];
+                if (parents.TryGetValue(entry.Root + "|" + path.ToUpperInvariant(), out var parent) && parent.StateImageIndex != 0)
+                    for (var node = parent; node != null; node = node.Parent) node.StateImageIndex = 2;
+            }
+        }
+    }
     private void SetStatus(string text)
     {
-        _status.Text = text;
-        _journal.AppendText(DateTime.Now.ToString("HH:mm:ss") + "  " + text + Environment.NewLine);
-        if (_journal.TextLength > 40000) _journal.Text = _journal.Text[^30000..];
+        _status.Text = text; _journal.AppendText(DateTime.Now.ToString("HH:mm:ss") + "  " + text + Environment.NewLine);
+        try { OperationLog.Write("cleanup-ui", _app.Id, text); } catch { }
     }
     private void UpdateButtons()
     {
-        _progress.Visible = Running;
-        _items.Enabled = Stage == OperationStage.Leftovers;
-        _primary.Visible = Stage is OperationStage.Confirm or OperationStage.Leftovers or OperationStage.ConfirmCleanup || Stage == OperationStage.Result && _canFind;
-        _primary.Enabled = !Running && (Stage != OperationStage.Leftovers || Selected().Count > 0);
-        _primary.Text = Stage switch { OperationStage.Confirm => L.T(_action is 1 or 2 ? "OperationFind" : "OperationDelete"),
-            OperationStage.Result => L.T("OperationFind"), OperationStage.ConfirmCleanup => L.T("OperationConfirmCleanup"), _ => L.T("Operation17") };
-        _secondary.Text = Running && _waiting ? L.T("OperationStopObserving") : Stage is OperationStage.Confirm or OperationStage.ConfirmCleanup ? L.T("Cancel") : UiText.Close;
-        _secondary.Enabled = !Running || _waiting && !_observation.IsCancellationRequested;
+        _tree.Enabled = Stage == OperationStage.Leftovers;
+        _primary.Enabled = !Running && (Stage != OperationStage.Leftovers || CleanupPlan.Build(_entries, _selected).Count > 0);
+        _primary.Visible = Stage != OperationStage.Finished;
+        _primary.Text = L.T(Stage == OperationStage.Confirm ? _action == 3 ? "OperationDelete" : "OperationFind" : Stage == OperationStage.ConfirmCleanup ? "OperationConfirmCleanup" : "Operation17");
+        _secondary.Enabled = !Running;
+        _secondary.Text = L.T(Stage is OperationStage.Confirm or OperationStage.ConfirmCleanup ? "Cancel" : "CleanupClose");
     }
-    private List<JunkItem> Selected() => _items.Rows.Cast<DataGridViewRow>().Where(r => r.Cells[0].Value is true).Select(r => (JunkItem)r.Tag!).ToList();
     internal void Secondary()
     {
-        if (Running)
-        {
-            if (!_waiting) return;
-            _observation.Cancel(); SetStatus(L.T("OperationStopRequested")); UpdateButtons(); return;
-        }
-        if (Stage == OperationStage.ConfirmCleanup) { _approved.Clear(); Stage = OperationStage.Leftovers; SetStatus(L.T("OperationChoose")); UpdateButtons(); return; }
-        Close();
+        if (Running) return;
+        if (Stage == OperationStage.ConfirmCleanup) { Stage = OperationStage.Leftovers; _approved.Clear(); SetStatus(L.T("CleanupSelectionHelp")); UpdateButtons(); }
+        else Close();
     }
     internal async Task Advance()
     {
-        if (Running || Stage == OperationStage.Finished || Stage == OperationStage.Result && !_canFind) return;
+        if (Running || Stage == OperationStage.Finished) return;
         if (Stage == OperationStage.Leftovers)
         {
-            _approved = Selected(); if (_approved.Count == 0) return;
-            Stage = OperationStage.ConfirmCleanup;
-            SetStatus(L.T("Operation24") + _app.Name + "»: " + _approved.Count + L.T("Operation25")); UpdateButtons(); return;
+            _approved = CleanupPlan.Build(_entries, _selected); if (_approved.Count == 0) return;
+            Stage = OperationStage.ConfirmCleanup; SetStatus(L.T("Operation24") + _app.Name + "»): " + _approved.Count + L.T("Operation25")); UpdateButtons(); return;
         }
-        var previous = Stage;
-        Stage = OperationStage.Running; _waiting = previous == OperationStage.Confirm && _action == 0;
-        SetStatus(L.T(_waiting ? "OperationWaiting" : previous == OperationStage.ConfirmCleanup || _action == 3 ? "OperationRemoving" : "Operation13")); UpdateButtons();
+        var previous = Stage; Stage = OperationStage.Running; UpdateButtons();
         try
         {
             if (previous == OperationStage.ConfirmCleanup)
             {
                 var failures = new List<string>();
-                foreach (var item in _approved.OrderBy(x => x.Kind == "folder" ? 1 : 0))
+                foreach (var entry in _approved)
                 {
-                    try
-                    {
-                        await Task.Run(() => _services.Delete(_app, item));
-                        var row = _items.Rows.Cast<DataGridViewRow>().First(r => Equals(r.Tag, item)); _items.Rows.Remove(row);
-                        SetStatus(L.T("Operation26") + " " + item.Path);
-                    }
-                    catch (Exception ex) { failures.Add(item.Path + ": " + ex.Message); LogError(ex); }
+                    try { await Task.Run(() => _services.DeleteEntry(_app, entry)); _entries.Remove(entry); SetStatus(L.T("Operation26") + " " + entry.DisplayPath); }
+                    catch (Exception ex) { failures.Add(entry.DisplayPath + ": " + ex.Message); SetStatus(failures[^1]); }
                 }
-                _approved.Clear(); Stage = OperationStage.Leftovers;
-                SetStatus(failures.Count == 0 ? L.T("Operation26") : string.Join(Environment.NewLine, failures));
+                Populate(_entries.ToList()); SetStatus(failures.Count == 0 ? L.T("Operation26") : string.Join(Environment.NewLine, failures)); _approved.Clear();
             }
-            else if (previous == OperationStage.Result || _action is 1 or 2)
-            {
-                var items = await Task.Run(() => _services.Find(_app));
-                _items.Rows.Clear();
-                foreach (var item in items)
-                {
-                    var index = _items.Rows.Add(false, item.Kind == "folder" ? item.Path : item.Hive + " / " + item.View + " / " + item.Path, L.T(item.Evidence));
-                    _items.Rows[index].Tag = item;
-                    foreach (DataGridViewCell cell in _items.Rows[index].Cells) cell.ToolTipText = cell.Value?.ToString();
-                }
-                _items.Visible = true; Stage = OperationStage.Leftovers;
-                SetStatus(items.Count == 0 ? L.T("Operation20") : L.T("OperationChoose"));
-            }
-            else if (_action == 3)
-            {
-                await Task.Run(() => _services.RemoveRecord(_app)); Stage = OperationStage.Finished; SetStatus(L.T("Operation11"));
-            }
-            else
-            {
-                var result = await Task.Run(() => _services.Uninstall(_app, _observation.Token));
-                // Stopping observation can race completion; never offer cleanup on that path.
-                _canFind = result.Removed && !result.Reboot && !_app.Store && !_observation.IsCancellationRequested;
-                Stage = OperationStage.Result;
-                SetStatus(_observation.IsCancellationRequested ? L.T("Operation56") : result.Message);
-            }
+            else if (_action == 3) { await Task.Run(() => _services.RemoveRecord(_app)); Stage = OperationStage.Finished; SetStatus(L.T("Operation11")); }
+            else { Populate(await Task.Run(() => CleanupPlan.Expand(_services.Find(_app)))); }
         }
-        catch (Exception ex)
-        {
-            _canFind = false; Stage = OperationStage.Finished;
-            SetStatus(ex is OperationCanceledException ? L.T("Operation56") : L.T("Operation12") + ": " + ex.Message); LogError(ex);
-        }
+        catch (Exception ex) { Stage = OperationStage.Finished; SetStatus(L.T("Operation12") + ": " + ex.Message); }
         finally
         {
-            // Keep the operation guard until refresh completes, without activating or replacing this dialog.
-            var completedStage = Stage; Stage = OperationStage.Running; _waiting = false; UpdateButtons();
-            try { await _refresh(); }
-            catch (Exception ex) { SetStatus(Status + Environment.NewLine + L.T("OperationRefreshError") + ": " + ex.Message); LogError(ex); }
-            Stage = completedStage; UpdateButtons();
+            var completed = Stage; Stage = OperationStage.Running;
+            try { await _refresh(); } catch (Exception ex) { SetStatus(L.T("OperationRefreshError") + ": " + ex.Message); }
+            Stage = completed; UpdateButtons();
         }
     }
-    private void LogError(Exception ex)
-    { try { OperationLog.Write("operation-error", _app.Id, ex.ToString()); } catch { } }
     protected override void Dispose(bool disposing)
-    {
-        if (disposing) { _observation.Dispose(); _image?.Dispose(); }
-        base.Dispose(disposing);
-    }
+    { if (disposing) { _states?.Dispose(); _image?.Dispose(); } base.Dispose(disposing); }
 }

@@ -143,7 +143,7 @@ internal static class BcuTargetedJunkAdapter
 
 internal static class RegistryBackup
 {
-    public static async Task Delete(RegistryHive hive, RegistryView view, string path)
+    public static async Task Delete(RegistryHive hive, RegistryView view, string path, bool leafOnly = false)
     {
         var full = (hive == RegistryHive.LocalMachine ? "HKEY_LOCAL_MACHINE" : "HKEY_CURRENT_USER") + @"\" + path;
         if (hive is not (RegistryHive.LocalMachine or RegistryHive.CurrentUser) || path.IndexOfAny(['"', '\r', '\n']) >= 0 || path.Split('\\').Length < 3)
@@ -166,8 +166,8 @@ internal static class RegistryBackup
         File.WriteAllText(backup + ".txt", "Restore using reg.exe import with /reg:" + (view == RegistryView.Registry32 ? "32" : "64") + Environment.NewLine + full);
         OperationLog.Write("registry-backup", full, backup);
         using var root = RegistryKey.OpenBaseKey(hive, view);
-        try { root.DeleteSubKeyTree(path, true); }
-        catch (UnauthorizedAccessException) when (hive == RegistryHive.LocalMachine)
+        try { if (leafOnly) root.DeleteSubKey(path, true); else root.DeleteSubKeyTree(path, true); }
+        catch (UnauthorizedAccessException) when (!leafOnly && hive == RegistryHive.LocalMachine)
         {
             // Only this approved key is elevated, never the shell, and only after an access-denied result.
             using var elevated = Process.Start(new ProcessStartInfo(regExe, "delete \"" + full + "\" /f") { UseShellExecute = true, Verb = "runas" })

@@ -82,5 +82,15 @@
   "OperationStopObserving": ["Прекратить ожидание", "Stop waiting"],
   "OperationStopRequested": ["Останавливается только наблюдение EXPC. Деинсталлятор продолжает работу; результат и зачистка не подтверждены.", "Only EXPC monitoring is stopping. The uninstaller continues; removal and cleanup are not confirmed."],
   "OperationRefreshError": ["Не удалось обновить список", "Could not refresh the list"],
-  "OperationRemoving": ["Выполняется удаление выбранных объектов. Сохраняются резервные копии ключей реестра.", "Removing selected items. Registry key backups are being saved."]
+  "OperationRemoving": ["Выполняется удаление выбранных объектов. Сохраняются резервные копии ключей реестра.", "Removing selected items. Registry key backups are being saved."],
+  "RemovalWaiting": ["Ожидается штатный деинсталлятор…", "Waiting for the uninstaller…"],
+  "RemovalFound": ["Найдены остатки программы", "Application leftovers found"],
+  "CleanupFiles": ["Файлы программы", "Program files"],
+  "CleanupRegistry": ["Реестр", "Registry"],
+  "CleanupUserData": ["Пользовательские данные", "User data"],
+  "CleanupSelectionHelp": ["Выберите объекты вручную. Профили и настройки, включая ключи реестра, не отмечены. Неотмеченные вложенные объекты защищены планом удаления.", "Select items manually. Profiles and settings, including registry keys, are unchecked. Unchecked descendants are protected by the deletion plan."],
+  "CleanupClose": ["Закрыть без очистки", "Close without cleaning"],
+  "CleanupClearLog": ["Очистить", "Clear"],
+  "CleanupCopyLog": ["Копировать", "Copy"],
+  "CleanupSaveLog": ["Сохранить как…", "Save as…"]
 }

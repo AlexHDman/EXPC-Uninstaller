@@ -9,6 +9,8 @@ internal sealed partial class MainWindow
     private readonly List<(int Action, ToolStripMenuItem Item)> _operationMenus = [];
     private bool _operationBusy;
     private OperationWindow? _operationDialog;
+    private readonly StandardRemoval _standardRemoval = new();
+    private string? _operationStatus;
     private AppEntry? SelectedEntry => _grid.CurrentRow?.Index is int index && index >= 0 && index < _visible.Count && _grid.SelectedRows.Count > 0 ? _visible[index] : null;
     private ToolStripMenuItem ActionItem(int action)
     {
@@ -62,6 +64,13 @@ internal sealed partial class MainWindow
         if (action <= 3 && _operationDialog is { IsDisposed: false } existing)
         { if (!existing.Running) existing.Activate(); return; }
         if (!CanRun(action, app) || app == null) return;
+        if (action == 0)
+        {
+            _operationBusy = true; UpdateActionState();
+            try { await _standardRemoval.Run(app, new(), OperationStatus, () => RefreshAfter(app), items => OpenOperation(app, 2, items)); }
+            finally { _operationBusy = _operationDialog is { IsDisposed: false }; UpdateActionState(); }
+            return;
+        }
         if (action <= 3) { OpenOperation(app, action); return; }
         try
         {
@@ -103,11 +112,12 @@ internal sealed partial class MainWindow
         }
         finally { _operationBusy = false; UpdateActionState(); }
     }
-    private void OpenOperation(AppEntry app, int action)
+    private void OperationStatus(string text) { _operationStatus = text; _status = text; _tips.SetToolTip(this, text); Invalidate(); }
+    private void OpenOperation(AppEntry app, int action, List<CleanupEntry>? items = null)
     {
         if (_operationDialog is { IsDisposed: false }) return;
         _icons.TryGetValue(app.Id, out var icon);
-        var dialog = new OperationWindow(app, action, () => RefreshAfter(app), icon ?? _fallbackIcon);
+        var dialog = new OperationWindow(app, action, () => RefreshAfter(app), icon ?? _fallbackIcon, initial: items);
         _operationBusy = true;
         _operationDialog = dialog;
         dialog.FormClosed += (_, _) =>
@@ -115,6 +125,7 @@ internal sealed partial class MainWindow
             _operationDialog = null; _operationBusy = false; UpdateActionState(); dialog.Dispose();
         };
         UpdateActionState();
+        dialog.PositionNear(this);
         dialog.Show(this);
     }
     protected override void OnFormClosing(FormClosingEventArgs e)
