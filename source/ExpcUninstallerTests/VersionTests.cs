@@ -115,6 +115,8 @@ public sealed class VersionTests
     public void LocalizationHasSameKeysAndPreservesPlaceholders()
     {
         var english = L.Catalog("en"); Assert.IsTrue(english.Count > 150);
+        CollectionAssert.AreEquivalent(new[] { "Expc.Locale.ru.json", "Expc.Locale.en.json", "Expc.Locale.updates.json" },
+            typeof(L).Assembly.GetManifestResourceNames().Where(n => n.StartsWith("Expc.Locale.")).ToArray());
         foreach (var language in L.Languages.Keys)
         {
             var catalog = L.Catalog(language);
@@ -130,7 +132,13 @@ public sealed class VersionTests
     public void LanguageFallbackAndProductIdentityAreConservative()
     {
         Assert.AreEqual("en", PortableData.LanguageFor("", CultureInfo.GetCultureInfo("ja-JP")));
-        Assert.AreEqual("de", PortableData.LanguageFor("de", CultureInfo.GetCultureInfo("ru-RU")));
+        Assert.AreEqual("en", PortableData.LanguageFor("de", CultureInfo.GetCultureInfo("ru-RU")));
+        Assert.AreEqual("ru", PortableData.LanguageFor("", CultureInfo.GetCultureInfo("ru-RU")));
+        Assert.AreEqual("en", PortableData.LanguageFor("en", CultureInfo.GetCultureInfo("ru-RU")));
+        Assert.AreEqual("ru", PortableData.LanguageFor("ru", CultureInfo.GetCultureInfo("en-US")));
+        foreach (var removed in new[] { "de", "fr", "es", "it", "pt" })
+            Assert.AreEqual("en", PortableData.LanguageFor(removed, CultureInfo.GetCultureInfo("ru-RU")));
+        CollectionAssert.AreEquivalent(new[] { "ru", "en" }, L.Languages.Keys.ToArray());
         Assert.AreNotEqual(PortableData.Identity(App()), PortableData.Identity(App() with { Publisher = "Other" }));
         Assert.AreEqual(PortableData.Identity(App()), PortableData.Identity(App("1.3")));
     }

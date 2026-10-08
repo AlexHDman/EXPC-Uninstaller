@@ -43,5 +43,6 @@ internal static class PortableData
     public static string Identity(AppEntry app) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
         string.Join('\n', app.Id, app.Name, app.Publisher, app.Store))));
     public static string LanguageFor(string requested, CultureInfo windows) =>
-        L.Languages.ContainsKey(requested) ? requested : L.Languages.ContainsKey(windows.TwoLetterISOLanguageName) ? windows.TwoLetterISOLanguageName : "en";
+        L.Languages.ContainsKey(requested) ? requested : !string.IsNullOrEmpty(requested) ? "en"
+            : windows.TwoLetterISOLanguageName == "ru" ? "ru" : "en";
 }

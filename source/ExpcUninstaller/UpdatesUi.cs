@@ -99,10 +99,10 @@ internal sealed class UpdatesWindow : Form
         foreach (var entry in entries)
         {
             var i = grid.Rows.Add(false, entry.App.Name, entry.Result.Installed, entry.Result.Latest, entry.Result.Source,
-                L.T(entry.Result.CanInstall ? "ReadyForUpdate" : entry.Result.Reason));
+                L.T(entry.Result.SelectionReason));
             grid.Rows[i].Cells[0].ReadOnly = !entry.Result.CanInstall;
             grid.Rows[i].Tag = i; // Stable identity even after a text column is sorted.
-            grid.Rows[i].Cells[5].ToolTipText = L.T(entry.Result.CanInstall ? "ReadyForUpdate" : entry.Result.Reason)
+            grid.Rows[i].Cells[5].ToolTipText = L.T(entry.Result.SelectionReason)
                 + "\n" + L.T(entry.Result.Compatibility) + "\n" + entry.Result.Source;
         }
         var log = new TextBox { Dock = DockStyle.Bottom, Height = 80, ReadOnly = true, Multiline = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None };
@@ -112,21 +112,31 @@ internal sealed class UpdatesWindow : Form
         var close = new Button { Text = UiText.Close, AutoSize = true }; var install = new Button { Text = L.T("InstallSelected"), AutoSize = true };
         buttons.Controls.AddRange([close, install]); Controls.Add(grid); Controls.Add(log); Controls.Add(note); Controls.Add(bar); Controls.Add(buttons);
         bool busy = false, cancel = false;
+        var checkedEntries = new HashSet<int>();
         bool Allowed(DataGridViewRow row) => !row.Cells[0].ReadOnly && entries[(int)row.Tag!].Result.CanInstall;
-        void UpdateSelection() => install.Enabled = !busy && grid.Rows.Cast<DataGridViewRow>().Any(r => Allowed(r) && r.Cells[0].Value is true);
+        void UpdateSelection() => install.Enabled = !busy && grid.Rows.Cast<DataGridViewRow>().Any(r => Allowed(r) && checkedEntries.Contains((int)r.Tag!));
         void Toggle(DataGridViewRow row)
         {
-            if (busy || !Allowed(row)) return;
-            row.Cells[0].Value = row.Cells[0].Value is not true;
+            if (busy) return;
+            if (!Allowed(row)) { ShowDetails(); return; }
+            row.Cells[0].Value = !checkedEntries.Contains((int)row.Tag!);
+            grid.InvalidateCell(row.Cells[0]);
         }
-        grid.CellContentClick += (_, e) => { if (e.RowIndex >= 0 && e.ColumnIndex == 0) Toggle(grid.Rows[e.RowIndex]); };
+        // Whole checkbox cell, not only the native glyph's content hit rectangle.
+        grid.CellMouseClick += (_, e) => { if (e.Button == MouseButtons.Left && e.RowIndex >= 0 && e.ColumnIndex == 0) Toggle(grid.Rows[e.RowIndex]); };
         grid.KeyDown += (_, e) =>
         {
             if (e.KeyCode != Keys.Space || e.Modifiers != Keys.None) return;
             e.Handled = e.SuppressKeyPress = true;
             if (grid.CurrentRow is { } row) Toggle(row);
         };
-        grid.CellValueChanged += (_, e) => { if (e.ColumnIndex == 0) UpdateSelection(); };
+        grid.CellValueChanged += (_, e) =>
+        {
+            if (e.ColumnIndex != 0 || e.RowIndex < 0) return;
+            var row = grid.Rows[e.RowIndex]; var id = (int)row.Tag!;
+            if (Allowed(row) && row.Cells[0].Value is true) checkedEntries.Add(id); else checkedEntries.Remove(id);
+            UpdateSelection();
+        };
         void ShowDetails()
         {
             if (!busy && grid.CurrentRow is { } row)
@@ -138,7 +148,7 @@ internal sealed class UpdatesWindow : Form
         close.Click += (_, _) => { if (busy) { cancel = true; close.Enabled = false; log.Text = L.T("CancelUpdateQueue"); } else Close(); };
         install.Click += async (_, _) =>
         {
-            grid.EndEdit(); var selected = grid.Rows.Cast<DataGridViewRow>().Where(r => Allowed(r) && r.Cells[0].Value is true)
+            grid.EndEdit(); var selected = grid.Rows.Cast<DataGridViewRow>().Where(r => Allowed(r) && checkedEntries.Contains((int)r.Tag!))
                 .DistinctBy(r => (entries[(int)r.Tag!].Result.Package!.Manager, entries[(int)r.Tag!].Result.Package!.Id, entries[(int)r.Tag!].Result.Package!.Scope)).ToArray();
             if (selected.Length == 0) return;
             if (Dialogs.Show(this, L.T("ConfirmUpdates") + "\n" + string.Join("\n", selected.Select(r => entries[(int)r.Tag!].App.Name + " → " + entries[(int)r.Tag!].Result.Latest)), Text,

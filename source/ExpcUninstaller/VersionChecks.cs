@@ -15,6 +15,14 @@ internal sealed record VersionResult(VersionState State, string Installed, strin
     public bool CanInstall => State == VersionState.Update && ReleaseVersion.Compare(Installed, Latest) < 0
         && Package is { Applicable: true, IdentityConfirmed: true, Pinned: false, Error.Length: 0 }
         && Package.Installed == Installed && Package.Latest == Latest && Package.Manager is "WinGet" or "Chocolatey" or "Scoop";
+    public string SelectionReason => CanInstall ? "ReadyForUpdate"
+        : Package is null ? Reason == "ManagerReady" ? "ManagerIdentityReview" : Reason
+        : Package.Pinned ? "ManagerPinned"
+        : !Package.IdentityConfirmed ? "ManagerIdentityReview"
+        : !Package.Applicable ? "CompatibilityUnknown"
+        : Package.Error.Length > 0 ? "ManagerFailed"
+        : Package.Installed != Installed || Package.Latest != Latest ? "UpdatePlanChanged"
+        : Reason == "ManagerReady" ? "ManagerIdentityReview" : Reason;
 }
 
 internal sealed record VersionRule

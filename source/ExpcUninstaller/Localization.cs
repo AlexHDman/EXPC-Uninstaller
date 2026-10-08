@@ -6,7 +6,7 @@ namespace ExpcUninstaller;
 internal static class L
 {
     public static readonly Dictionary<string, string> Languages = new()
-    { ["ru"] = "Русский", ["en"] = "English", ["de"] = "Deutsch", ["fr"] = "Français", ["es"] = "Español", ["it"] = "Italiano", ["pt"] = "Português" };
+    { ["ru"] = "Русский", ["en"] = "English" };
     private static readonly Dictionary<string, Dictionary<string, string>> Catalogs = Languages.Keys.ToDictionary(x => x, Read);
     public static string Language { get; private set; } = "en";
     private static Dictionary<string, string> Read(string language)
@@ -16,7 +16,7 @@ internal static class L
         using var extra = typeof(L).Assembly.GetManifestResourceStream("Expc.Locale.updates.json");
         if (extra != null)
         {
-            var index = Array.IndexOf(new[] { "ru", "en", "de", "fr", "es", "it", "pt" }, language);
+            var index = language == "ru" ? 0 : 1;
             foreach (var pair in JsonSerializer.Deserialize<Dictionary<string, string[]>>(extra)!) result[pair.Key] = pair.Value[index];
         }
         return result;

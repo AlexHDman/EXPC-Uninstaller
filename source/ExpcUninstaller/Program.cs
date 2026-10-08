@@ -12,6 +12,7 @@ internal static class Program
     private static void Main()
     {
         L.Select(PortableData.LanguageFor(Settings.Language, CultureInfo.InstalledUICulture));
+        if (!string.IsNullOrEmpty(Settings.Language)) Settings.Language = L.Language;
         Theme.Select(Settings.Theme);
         // Portable folder customization: fixed packaged file only; never touch the repository's desktop.ini.
         try
