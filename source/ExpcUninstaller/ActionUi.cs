@@ -8,6 +8,7 @@ internal sealed partial class MainWindow
     private readonly GlassButton _delete;
     private readonly List<(int Action, ToolStripMenuItem Item)> _operationMenus = [];
     private bool _operationBusy;
+    private OperationWindow? _operationDialog;
     private AppEntry? SelectedEntry => _grid.CurrentRow?.Index is int index && index >= 0 && index < _visible.Count && _grid.SelectedRows.Count > 0 ? _visible[index] : null;
     private ToolStripMenuItem ActionItem(int action)
     {
@@ -58,7 +59,10 @@ internal sealed partial class MainWindow
     private async Task RunSelected(int action)
     {
         var app = SelectedEntry;
+        if (action <= 3 && _operationDialog is { IsDisposed: false } existing)
+        { if (!existing.Running) existing.Activate(); return; }
         if (!CanRun(action, app) || app == null) return;
+        if (action <= 3) { OpenOperation(app, action); return; }
         try
         {
             if (action == 8) { EditSource(app); return; }
@@ -90,29 +94,6 @@ internal sealed partial class MainWindow
                     : "https://www.google.com/search?q=" + Uri.EscapeDataString(app.Name + " " + app.Publisher);
                 Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); return;
             }
-            if (action == 0 && !Confirm(L.T("Operation3") + app.Name + "»?\n" + (app.Store ? L.T("Operation4") : L.T("Operation5")))) return;
-            if (action == 1 && !Confirm(L.T("Operation6") + app.Name + L.T("Operation7"))) return;
-            if (action == 3 && !Confirm(L.T("Operation8") + app.Name + L.T("Operation9"))) return;
-            _operationBusy = true; UpdateActionState();
-            if (action == 0)
-            {
-                using var cancel = new CancellationTokenSource();
-                using var progress = new OperationWindow(app.Name, cancel);
-                progress.Show(this);
-                OperationResult result;
-                try { result = await Task.Run(() => ProductActions.Uninstall(app, cancel.Token)); }
-                finally { progress.Complete(); }
-                await RefreshAfter(app);
-                Dialogs.Show(this, result.Message, app.Name, MessageBoxButtons.OK, result.Removed ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
-                if (result.Removed && !app.Store && !result.Reboot && Confirm("«" + app.Name + L.T("Operation10"))) await ShowJunk(app);
-            }
-            else if (action is 1 or 2) await ShowJunk(app);
-            else if (action == 3)
-            {
-                await Task.Run(() => RegistryBackup.RemoveRecord(app));
-                await RefreshAfter(app);
-                Dialogs.Show(this, L.T("Operation11"), app.Name);
-            }
         }
         catch (Exception ex)
         {
@@ -122,16 +103,19 @@ internal sealed partial class MainWindow
         }
         finally { _operationBusy = false; UpdateActionState(); }
     }
-    private async Task ShowJunk(AppEntry app)
+    private void OpenOperation(AppEntry app, int action)
     {
-        _status = L.T("Operation13"); Invalidate();
-        try
+        if (_operationDialog is { IsDisposed: false }) return;
+        _icons.TryGetValue(app.Id, out var icon);
+        var dialog = new OperationWindow(app, action, () => RefreshAfter(app), icon ?? _fallbackIcon);
+        _operationBusy = true;
+        _operationDialog = dialog;
+        dialog.FormClosed += (_, _) =>
         {
-            var items = await Task.Run(() => BcuTargetedJunkAdapter.Find(app));
-            using var dialog = new JunkWindow(app, items);
-            dialog.ShowDialog(this);
-        }
-        finally { _status = UiText.Ready; Invalidate(); await RefreshAfter(app); }
+            _operationDialog = null; _operationBusy = false; UpdateActionState(); dialog.Dispose();
+        };
+        UpdateActionState();
+        dialog.Show(this);
     }
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
@@ -143,87 +127,5 @@ internal sealed partial class MainWindow
         _versionCancellation?.Cancel();
         SavePreferences();
         base.OnFormClosing(e);
-    }
-}
-
-internal sealed class OperationWindow : Form
-{
-    private bool _done;
-    public OperationWindow(string name, CancellationTokenSource cancellation)
-    {
-        Text = L.T("Operation14") + name; ClientSize = new Size(470, 110); FormBorderStyle = FormBorderStyle.FixedDialog;
-        MaximizeBox = MinimizeBox = false; StartPosition = FormStartPosition.CenterParent;
-        BackColor = GlassTeal.Background; ForeColor = GlassTeal.Text;
-        var text = new Label { Text = L.T("Operation15"), AutoSize = false, Dock = DockStyle.Top, Height = 65, Padding = new Padding(12) };
-        var stop = new Button { Text = L.T("Operation16"), Dock = DockStyle.Bottom, Height = 32, FlatStyle = FlatStyle.Flat };
-        stop.Click += (_, _) => { cancellation.Cancel(); stop.Enabled = false; };
-        Controls.Add(text); Controls.Add(stop);
-        FormClosing += (_, e) => { if (!_done) { e.Cancel = true; cancellation.Cancel(); } };
-    }
-    public void Complete() { _done = true; Close(); }
-}
-
-internal sealed class JunkWindow : Form
-{
-    private readonly DataGridView _items = new();
-    private readonly Button _remove = new() { Text = L.T("Operation17"), AutoSize = true, FlatStyle = FlatStyle.Flat };
-    private readonly Button _close = new() { Text = L.T("Operation18"), AutoSize = true, FlatStyle = FlatStyle.Flat };
-    private bool _busy;
-    public JunkWindow(AppEntry app, List<JunkItem> items)
-    {
-        Text = L.T("Operation19") + app.Name; StartPosition = FormStartPosition.CenterParent;
-        AutoScaleMode = AutoScaleMode.Dpi; ClientSize = new Size(850, 400); MinimumSize = new Size(600, 300);
-        BackColor = GlassTeal.Background; ForeColor = GlassTeal.Text; Font = new Font("Segoe UI", 9);
-        var heading = new Label
-        {
-            Dock = DockStyle.Top,
-            Height = 55,
-            Padding = new Padding(10),
-            Text = items.Count == 0 ? L.T("Operation20")
-                : app.Name + " — " + items.Count + L.T("Operation21")
-        };
-        _items.Dock = DockStyle.Fill; _items.BackgroundColor = GlassTeal.Background; _items.BorderStyle = BorderStyle.None;
-        _items.AllowUserToAddRows = _items.AllowUserToDeleteRows = false; _items.RowHeadersVisible = false;
-        _items.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill; _items.MultiSelect = false;
-        _items.DefaultCellStyle.BackColor = GlassTeal.Surface; _items.DefaultCellStyle.ForeColor = GlassTeal.Text;
-        _items.DefaultCellStyle.SelectionBackColor = GlassTeal.Selection; _items.DefaultCellStyle.SelectionForeColor = GlassTeal.Text;
-        _items.EnableHeadersVisualStyles = false; _items.ColumnHeadersDefaultCellStyle.BackColor = GlassTeal.Caption; _items.ColumnHeadersDefaultCellStyle.ForeColor = GlassTeal.Text;
-        _items.Columns.Add(new DataGridViewCheckBoxColumn { HeaderText = "", Width = 32, AutoSizeMode = DataGridViewAutoSizeColumnMode.None });
-        foreach (var title in new[] { L.T("Operation22"), L.T("Operation23") }) _items.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = title, ReadOnly = true });
-        foreach (var item in items)
-        {
-            var row = _items.Rows[_items.Rows.Add(false, item.Kind == "folder" ? item.Path : item.Hive + " / " + item.View + " / " + item.Path, L.T(item.Evidence))]; row.Tag = item;
-        }
-        var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 44, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6) };
-        bar.Controls.Add(_close); bar.Controls.Add(_remove);
-        Controls.Add(_items); Controls.Add(heading); Controls.Add(bar);
-        _remove.Enabled = items.Count > 0;
-        _close.Click += (_, _) => Close();
-        FormClosing += (_, e) => e.Cancel = _busy;
-        _remove.Click += async (_, _) =>
-        {
-            _items.EndEdit();
-            var selected = _items.Rows.Cast<DataGridViewRow>().Where(r => r.Cells[0].Value is true).ToList();
-            if (selected.Count == 0) return;
-            if (Dialogs.Show(this, L.T("Operation24") + app.Name + "»): " + selected.Count + L.T("Operation25"), Text,
-                MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
-            _busy = true; _items.Enabled = _remove.Enabled = _close.Enabled = false;
-            var errors = new List<string>();
-            try
-            {
-                foreach (var row in selected.OrderBy(r => ((JunkItem)r.Tag!).Kind == "folder" ? 1 : 0))
-                {
-                    var item = (JunkItem)row.Tag!;
-                    try { await Task.Run(() => BcuTargetedJunkAdapter.Delete(app, item)); _items.Rows.Remove(row); }
-                    catch (Exception ex)
-                    {
-                        errors.Add(item.Path + ": " + ex.Message);
-                        try { OperationLog.Write("cleanup-error", app.Id, item.Path + ": " + ex); } catch { }
-                    }
-                }
-                Dialogs.Show(this, errors.Count == 0 ? L.T("Operation26") : string.Join("\n", errors), Text);
-            }
-            finally { _busy = false; _items.Enabled = _close.Enabled = true; _remove.Enabled = _items.Rows.Count > 0; }
-        };
     }
 }

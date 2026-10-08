@@ -71,5 +71,16 @@
   "ChocolateyConsent": ["Chocolatey выполнит сценарии выбранного пакета с повышенными правами. Разрешить их выполнение и принять условия пакета? При отказе установка не начнётся","Chocolatey will run the selected package scripts with elevated rights. Allow these scripts and accept the package terms? Declining skips installation"],
   "ScoopReview": ["Локальный bucket Scoop отличается от источника. Обновите его средствами Scoop и повторите проверку","Local Scoop bucket differs from source. Refresh it with Scoop and check again"],
   "NetworkOrRuleError": ["Ошибка сети или правила извлечения версии","Network or version extraction rule error"],
-  "CheckCancelledReason": ["Проверка отменена или превышено время ожидания","Check cancelled or timed out"]
+  "CheckCancelledReason": ["Проверка отменена или превышено время ожидания","Check cancelled or timed out"],
+  "OperationDetails": ["Подробности / Журнал", "Details / Log"],
+  "OperationFindPrompt": ["Найти остатки только выбранной программы? Найденное не удаляется автоматически.", "Find leftovers for the selected application only? Nothing is deleted automatically."],
+  "OperationFind": ["Найти остатки", "Find leftovers"],
+  "OperationDelete": ["Удалить", "Uninstall"],
+  "OperationConfirmCleanup": ["Подтвердить удаление", "Confirm deletion"],
+  "OperationChoose": ["Выберите остатки для удаления. Ключи реестра будут сохранены в резервную копию перед удалением.", "Select leftovers to delete. Registry keys will be backed up before deletion."],
+  "OperationWaiting": ["Ожидается завершение штатного деинсталлятора. Его окна и UAC могут требовать вашего участия. Отмена удаления — в окне деинсталлятора.", "Waiting for the application's uninstaller to finish. Its windows and UAC may require your input. Cancel uninstall in the uninstaller itself."],
+  "OperationStopObserving": ["Прекратить ожидание", "Stop waiting"],
+  "OperationStopRequested": ["Останавливается только наблюдение EXPC. Деинсталлятор продолжает работу; результат и зачистка не подтверждены.", "Only EXPC monitoring is stopping. The uninstaller continues; removal and cleanup are not confirmed."],
+  "OperationRefreshError": ["Не удалось обновить список", "Could not refresh the list"],
+  "OperationRemoving": ["Выполняется удаление выбранных объектов. Сохраняются резервные копии ключей реестра.", "Removing selected items. Registry key backups are being saved."]
 }

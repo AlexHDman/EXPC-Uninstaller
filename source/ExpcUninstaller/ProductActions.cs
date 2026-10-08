@@ -150,8 +150,7 @@ internal static class ProductActions
                 {
                     await ProcessFamily.Wait(process, trace, cancellation);
                     var exit = process.ExitCode;
-                    if (exit == 1602) result = new("cancelled", L.T("Operation48"));
-                    else if (exit != 0 && exit != 3010 && exit != 1641) result = new("error", L.T("Operation49") + exit + L.T("Operation50"));
+                    if (exit != 0 && exit != 3010 && exit != 1641) result = Completion(exit, false, trace.Available);
                     else
                     {
                         // A launcher can exit before a broker/detached child; poll registration as a separate fact.
@@ -163,18 +162,25 @@ internal static class ProductActions
                             if (absent >= 3) break;
                             await Task.Delay(500, cancellation);
                         }
-                        var reboot = exit is 3010 or 1641;
-                        result = absent >= 3 && trace.Available
-                            ? new("removed", L.T("Operation51") + (reboot ? L.T("Operation52") : ""), true, reboot)
-                            : new("unconfirmed", !trace.Available ? L.T("Operation53") : L.T("Operation54") + (reboot ? L.T("Operation55") : ""), false, reboot);
+                        result = Completion(exit, absent >= 3, trace.Available);
                     }
                 }
             }
         }
-        catch (OperationCanceledException) { result = new("cancelled", L.T("Operation56")); }
+        catch (OperationCanceledException) { result = new("observation-stopped", L.T("Operation56")); }
         catch (Win32Exception ex) when (ex.NativeErrorCode == 1223) { result = new("cancelled", L.T("Operation57")); }
         OperationLog.Write("uninstall-result", app.Id, JsonSerializer.Serialize(result));
         return result;
+    }
+
+    internal static OperationResult Completion(int exit, bool registrationAbsent, bool traceAvailable)
+    {
+        if (exit == 1602) return new("cancelled", L.T("Operation48"));
+        if (exit != 0 && exit != 3010 && exit != 1641) return new("error", L.T("Operation49") + exit + L.T("Operation50"));
+        var reboot = exit is 3010 or 1641;
+        return registrationAbsent && traceAvailable
+            ? new("removed", L.T("Operation51") + (reboot ? L.T("Operation52") : ""), true, reboot)
+            : new("unconfirmed", !traceAvailable ? L.T("Operation53") : L.T("Operation54") + (reboot ? L.T("Operation55") : ""), false, reboot);
     }
 
     private static async Task<OperationResult> RemoveStore(AppEntry app, CancellationToken token)
@@ -187,8 +193,10 @@ internal static class ProductActions
             throw new InvalidOperationException(L.T("Operation59"));
         // Windows enforces non-removable package policy; no force/remove-all-users fallback.
         // Same current-user RemovePackageAsync mechanism as BCU AppManager. No AllUsers/provisioned options.
+        token.ThrowIfCancellationRequested();
         var operation = manager.RemovePackageAsync(app.Id);
-        var deployment = await operation.AsTask(token);
+        // Stop observing without forwarding cancellation into Windows deployment.
+        var deployment = await operation.AsTask().WaitAsync(token);
         if (deployment.ExtendedErrorCode != null && deployment.ExtendedErrorCode.HResult != 0) throw new IOException(deployment.ErrorText);
         var remains = manager.FindPackagesForUser("").Any(x => x.Id.FullName == app.Id);
         return remains ? new("unconfirmed", L.T("Operation60"))

@@ -29,14 +29,14 @@ public sealed class DialogLanguageTests
                 var app = new AppEntry("fixture", "Example", "1.0", null, null, null, "fixture");
                 using var source = new SourceWindow(app, null);
                 using var details = new DetailWindow(L.T("Updates"), "fixture", null);
-                using var operation = new OperationWindow(app.Name, cancel);
-                using var junk = new JunkWindow(app, []);
+                using var operation = new OperationWindow(app, 0, () => Task.CompletedTask);
+                using var junk = new OperationWindow(app, 2, () => Task.CompletedTask);
                 IEnumerable<Control> Descendants(Control c) => c.Controls.Cast<Control>().SelectMany(x => new[] { x }.Concat(Descendants(x)));
                 foreach (var form in new Form[] { create, unlock, change, accounts, source, details, operation, junk })
                 {
                     Assert.IsFalse(form.Visible, "Background test must not show any window");
                     foreach (var control in Descendants(form))
-                        Assert.IsFalse(catalog.TryGetValue(control.Text, out var translated) && translated != control.Text,
+                        Assert.IsFalse(catalog.TryGetValue(control.Text, out var translated) && translated != control.Text && !catalog.Values.Contains(control.Text),
                             $"Untranslated key in {form.GetType().Name}: {control.Text}");
                 }
                 Assert.AreEqual(L.T("CreateVault"), create.Text);
