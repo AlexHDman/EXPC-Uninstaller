@@ -87,6 +87,7 @@ internal sealed class UpdatesWindow : Form
             RowHeadersVisible = false,
             SelectionMode = DataGridViewSelectionMode.FullRowSelect,
             MultiSelect = false,
+            EditMode = DataGridViewEditMode.EditProgrammatically,
             BorderStyle = BorderStyle.None,
             CellBorderStyle = DataGridViewCellBorderStyle.None,
             EnableHeadersVisualStyles = false,
@@ -100,6 +101,9 @@ internal sealed class UpdatesWindow : Form
             var i = grid.Rows.Add(false, entry.App.Name, entry.Result.Installed, entry.Result.Latest, entry.Result.Source,
                 L.T(entry.Result.CanInstall ? "ReadyForUpdate" : entry.Result.Reason));
             grid.Rows[i].Cells[0].ReadOnly = !entry.Result.CanInstall;
+            grid.Rows[i].Tag = i; // Stable identity even after a text column is sorted.
+            grid.Rows[i].Cells[5].ToolTipText = L.T(entry.Result.CanInstall ? "ReadyForUpdate" : entry.Result.Reason)
+                + "\n" + L.T(entry.Result.Compatibility) + "\n" + entry.Result.Source;
         }
         var log = new TextBox { Dock = DockStyle.Bottom, Height = 80, ReadOnly = true, Multiline = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None };
         var note = new Label { Text = L.T("UpdateConsent"), Dock = DockStyle.Bottom, Height = 52, Padding = new Padding(8) };
@@ -108,27 +112,52 @@ internal sealed class UpdatesWindow : Form
         var close = new Button { Text = UiText.Close, AutoSize = true }; var install = new Button { Text = L.T("InstallSelected"), AutoSize = true };
         buttons.Controls.AddRange([close, install]); Controls.Add(grid); Controls.Add(log); Controls.Add(note); Controls.Add(bar); Controls.Add(buttons);
         bool busy = false, cancel = false;
+        bool Allowed(DataGridViewRow row) => !row.Cells[0].ReadOnly && entries[(int)row.Tag!].Result.CanInstall;
+        void UpdateSelection() => install.Enabled = !busy && grid.Rows.Cast<DataGridViewRow>().Any(r => Allowed(r) && r.Cells[0].Value is true);
+        void Toggle(DataGridViewRow row)
+        {
+            if (busy || !Allowed(row)) return;
+            row.Cells[0].Value = row.Cells[0].Value is not true;
+        }
+        grid.CellContentClick += (_, e) => { if (e.RowIndex >= 0 && e.ColumnIndex == 0) Toggle(grid.Rows[e.RowIndex]); };
+        grid.KeyDown += (_, e) =>
+        {
+            if (e.KeyCode != Keys.Space || e.Modifiers != Keys.None) return;
+            e.Handled = e.SuppressKeyPress = true;
+            if (grid.CurrentRow is { } row) Toggle(row);
+        };
+        grid.CellValueChanged += (_, e) => { if (e.ColumnIndex == 0) UpdateSelection(); };
+        void ShowDetails()
+        {
+            if (!busy && grid.CurrentRow is { } row)
+                log.Text = row.Cells[1].Value + "\r\n" + row.Cells[5].Value + "\r\n" + L.T(entries[(int)row.Tag!].Result.Compatibility) + "\r\n" + row.Cells[4].Value;
+        }
+        grid.CurrentCellChanged += (_, _) => ShowDetails();
+        Shown += (_, _) => ShowDetails();
+        UpdateSelection();
         close.Click += (_, _) => { if (busy) { cancel = true; close.Enabled = false; log.Text = L.T("CancelUpdateQueue"); } else Close(); };
         install.Click += async (_, _) =>
         {
-            grid.EndEdit(); var selected = Enumerable.Range(0, entries.Length).Where(i => entries[i].Result.CanInstall && grid.Rows[i].Cells[0].Value is true)
-                .DistinctBy(i => (entries[i].Result.Package!.Manager, entries[i].Result.Package!.Id, entries[i].Result.Package!.Scope)).ToArray();
+            grid.EndEdit(); var selected = grid.Rows.Cast<DataGridViewRow>().Where(r => Allowed(r) && r.Cells[0].Value is true)
+                .DistinctBy(r => (entries[(int)r.Tag!].Result.Package!.Manager, entries[(int)r.Tag!].Result.Package!.Id, entries[(int)r.Tag!].Result.Package!.Scope)).ToArray();
             if (selected.Length == 0) return;
-            if (Dialogs.Show(this, L.T("ConfirmUpdates") + "\n" + string.Join("\n", selected.Select(i => entries[i].App.Name + " → " + entries[i].Result.Latest)), Text,
+            if (Dialogs.Show(this, L.T("ConfirmUpdates") + "\n" + string.Join("\n", selected.Select(r => entries[(int)r.Tag!].App.Name + " → " + entries[(int)r.Tag!].Result.Latest)), Text,
                 MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
             busy = true; cancel = false; grid.Enabled = install.Enabled = false; bar.Visible = true; close.Text = L.T("StopQueue");
             try
             {
-                foreach (var index in selected)
+                foreach (var row in selected)
                 {
                     if (cancel) break;
-                    grid.Rows[index].Cells[5].Value = L.T("InstallingUpdate");
+                    var index = (int)row.Tag!;
+                    row.Cells[5].Value = L.T("InstallingUpdate");
                     var progress = new Progress<string>(text => { log.AppendText(text.ReplaceLineEndings(Environment.NewLine) + Environment.NewLine); if (log.TextLength > 20_000) log.Text = log.Text[^12_000..]; });
-                    grid.Rows[index].Cells[5].Value = await apply(entries[index].App, entries[index].Result, progress);
-                    grid.Rows[index].Cells[0].Value = false; grid.Rows[index].Cells[0].ReadOnly = true;
+                    row.Cells[5].Value = await apply(entries[index].App, entries[index].Result, progress);
+                    row.Cells[5].ToolTipText = row.Cells[5].Value?.ToString();
+                    row.Cells[0].Value = false; row.Cells[0].ReadOnly = true;
                 }
             }
-            finally { busy = false; grid.Enabled = close.Enabled = true; install.Enabled = false; bar.Visible = false; close.Text = UiText.Close; }
+            finally { busy = false; grid.Enabled = close.Enabled = true; UpdateSelection(); bar.Visible = false; close.Text = UiText.Close; }
         };
         FormClosing += (_, e) => { if (busy) { e.Cancel = true; cancel = true; log.Text = L.T("CancelUpdateQueue"); } };
         Theme.Apply(this);
