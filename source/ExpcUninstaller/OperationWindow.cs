@@ -33,7 +33,7 @@ internal sealed class OperationWindow : Form
     internal string Status => _status.Text;
     internal TreeView Tree => _tree;
 
-    public OperationWindow(AppEntry app, int action, Func<Task> refresh, Image? image = null, OperationServices? services = null, List<CleanupEntry>? initial = null)
+    public OperationWindow(AppEntry app, int action, Func<Task> refresh, Image? image = null, OperationServices? services = null, List<CleanupEntry>? initial = null, CleanupCheck? check = null)
     {
         if (action is < 1 or > 3) throw new ArgumentOutOfRangeException(nameof(action), "Normal uninstall must not open OperationWindow");
         _app = app; _action = action; _refresh = refresh; _services = services ?? new();
@@ -64,20 +64,40 @@ internal sealed class OperationWindow : Form
         });
         journalBar.Controls.Add(actions); journalBar.Controls.Add(details);
         Controls.Add(_tree); Controls.Add(_journal); Controls.Add(journalBar); Controls.Add(_status); Controls.Add(header); Controls.Add(buttons);
-        details.Click += (_, _) => _journal.Visible = !_journal.Visible;
+        details.Click += (_, _) =>
+        {
+            _journal.Visible = !_journal.Visible;
+            if (_journal.Visible && Height < 465 * DeviceDpi / 96)
+            {
+                var work = Screen.FromControl(this).WorkingArea;
+                Height = Math.Min(work.Height, 465 * DeviceDpi / 96);
+                Top = Math.Clamp(Top, work.Top, work.Bottom - Height);
+            }
+        };
         _primary.Click += async (_, _) => await Advance();
         _secondary.Click += (_, _) => Secondary();
         _tree.NodeMouseClick += (_, e) => { if (e.Node != null && e.Button == MouseButtons.Left && _tree.HitTest(e.Location).Location.HasFlag(TreeViewHitTestLocations.StateImage)) Toggle(e.Node); };
         _tree.KeyDown += (_, e) => { if (e.KeyCode == Keys.Space && e.Modifiers == Keys.None && _tree.SelectedNode is { } node) { e.Handled = e.SuppressKeyPress = true; Toggle(node); } };
         FormClosing += (_, e) => { if (Running) e.Cancel = true; };
         Theme.Apply(this); BuildStateImages();
-        if (initial != null) Populate(initial);
+        _tree.LineColor = GlassTeal.Border; _tree.DrawMode = TreeViewDrawMode.OwnerDrawText;
+        _tree.DrawNode += (_, e) =>
+        {
+            if (e.Node == null) return;
+            using var background = new SolidBrush((e.State & TreeNodeStates.Selected) != 0 ? GlassTeal.Selection : GlassTeal.Background);
+            e.Graphics.FillRectangle(background, e.Bounds);
+            TextRenderer.DrawText(e.Graphics, e.Node.Text, _tree.Font, e.Bounds, GlassTeal.Text, TextFormatFlags.NoPrefix | TextFormatFlags.VerticalCenter);
+        };
+        if (check?.Error != null) { Stage = OperationStage.Finished; SetStatus(check.Error); }
+        else if (initial != null) Populate(initial);
         else SetStatus(action == 1 ? L.T("Operation6") + app.Name + L.T("Operation7") : action == 3 ? L.T("Operation8") + app.Name + L.T("Operation9") : L.T("OperationFindPrompt"));
+        if (check?.Notice != null) SetStatus(Status + "\n" + check.Notice);
+        if (initial is { Count: 0 }) ClientSize = new Size(720, 300);
         UpdateButtons();
     }
-    internal static Rectangle Placement(Rectangle owner, Rectangle work, int dpi)
+    internal static Rectangle Placement(Rectangle owner, Rectangle work, int dpi, bool compact = false)
     {
-        var width = Math.Min(work.Width, (int)(740L * dpi / 96)); var height = Math.Min(work.Height, (int)(530L * dpi / 96));
+        var width = Math.Min(work.Width, (int)(740L * dpi / 96)); var height = Math.Min(work.Height, (int)((compact ? 340L : 530L) * dpi / 96));
         return new(Math.Clamp(owner.Left + (owner.Width - width) / 2, work.Left, work.Right - width),
             Math.Clamp(owner.Top + (owner.Height - height) / 2, work.Top, work.Bottom - height), width, height);
     }
@@ -86,7 +106,7 @@ internal sealed class OperationWindow : Form
         var work = Screen.FromControl(owner).WorkingArea;
         Location = owner.Location; // move to the owner's monitor before applying its physical DPI
         MinimumSize = Size.Empty;
-        Bounds = Placement(owner.Bounds, work, owner.DeviceDpi);
+        Bounds = Placement(owner.Bounds, work, owner.DeviceDpi, _entries.Count == 0 && Stage != OperationStage.Confirm);
         MinimumSize = new Size(Math.Min(work.Width, 540 * owner.DeviceDpi / 96), Math.Min(work.Height, 340 * owner.DeviceDpi / 96));
     }
     protected override void OnDpiChanged(DpiChangedEventArgs e) { base.OnDpiChanged(e); BuildStateImages(); }
@@ -108,7 +128,7 @@ internal sealed class OperationWindow : Form
     private void Populate(List<CleanupEntry> entries)
     {
         _entries = entries; _selected.Clear(); _tree.Nodes.Clear();
-        foreach (var key in new[] { "CleanupFiles", "CleanupRegistry", "CleanupUserData" })
+        foreach (var key in entries.Count == 0 ? Array.Empty<string>() : new[] { "CleanupFiles", "CleanupRegistry", "CleanupUserData" })
         {
             var section = _tree.Nodes.Add(L.T(key));
             var byPath = new Dictionary<(JunkItem, string), TreeNode>();
@@ -122,7 +142,7 @@ internal sealed class OperationWindow : Form
             }
             section.Expand();
         }
-        Stage = OperationStage.Leftovers; SetStatus(entries.Count == 0 ? L.T("Operation20") : L.T("CleanupSelectionHelp")); UpdateStates();
+        Stage = OperationStage.Leftovers; SetStatus(entries.Count == 0 ? L.T("CleanupEmpty") : L.T("CleanupSelectionHelp")); UpdateStates();
     }
     internal void Toggle(TreeNode node)
     {
@@ -162,10 +182,10 @@ internal sealed class OperationWindow : Form
     {
         _tree.Enabled = Stage == OperationStage.Leftovers;
         _primary.Enabled = !Running && (Stage != OperationStage.Leftovers || CleanupPlan.Build(_entries, _selected).Count > 0);
-        _primary.Visible = Stage != OperationStage.Finished;
+        _primary.Visible = Stage != OperationStage.Finished && !(Stage == OperationStage.Leftovers && _entries.Count == 0);
         _primary.Text = L.T(Stage == OperationStage.Confirm ? _action == 3 ? "OperationDelete" : "OperationFind" : Stage == OperationStage.ConfirmCleanup ? "OperationConfirmCleanup" : "Operation17");
         _secondary.Enabled = !Running;
-        _secondary.Text = L.T(Stage is OperationStage.Confirm or OperationStage.ConfirmCleanup ? "Cancel" : "CleanupClose");
+        _secondary.Text = Stage is OperationStage.Confirm or OperationStage.ConfirmCleanup ? L.T("Cancel") : UiText.Close;
     }
     internal void Secondary()
     {

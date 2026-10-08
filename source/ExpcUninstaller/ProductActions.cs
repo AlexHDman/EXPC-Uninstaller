@@ -149,6 +149,7 @@ internal static class ProductActions
                 using (process)
                 {
                     await ProcessFamily.Wait(process, trace, cancellation);
+                    OperationLog.Write("uninstall-observation", app.Id, JsonSerializer.Serialize(new { trace.Available, trace.FailureReason }));
                     var exit = process.ExitCode;
                     if (exit != 0 && exit != 3010 && exit != 1641) result = Completion(exit, false, trace.Available);
                     else
@@ -209,10 +210,11 @@ internal sealed class ProcessStartEvents : IDisposable
     private readonly ManagementEventWatcher _watcher = new(new WqlEventQuery("SELECT * FROM Win32_ProcessStartTrace"));
     public ConcurrentQueue<(int Id, int Parent)> Starts { get; } = new();
     public bool Available { get; private set; }
+    public string? FailureReason { get; private set; }
     public ProcessStartEvents()
     {
-        _watcher.EventArrived += (_, e) => { try { Starts.Enqueue((Convert.ToInt32(e.NewEvent["ProcessID"]), Convert.ToInt32(e.NewEvent["ParentProcessID"]))); } catch { Available = false; } };
-        try { _watcher.Start(); Available = true; } catch { Available = false; }
+        _watcher.EventArrived += (_, e) => { try { Starts.Enqueue((Convert.ToInt32(e.NewEvent["ProcessID"]), Convert.ToInt32(e.NewEvent["ParentProcessID"]))); } catch (Exception ex) { FailureReason = ex.ToString(); Available = false; } };
+        try { _watcher.Start(); Available = true; } catch (Exception ex) { FailureReason = ex.ToString(); Available = false; }
     }
     public void Dispose() { try { _watcher.Stop(); } catch { } _watcher.Dispose(); }
 }

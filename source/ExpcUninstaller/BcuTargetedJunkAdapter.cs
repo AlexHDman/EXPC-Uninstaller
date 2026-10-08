@@ -87,6 +87,7 @@ internal static class BcuTargetedJunkAdapter
         if (ProductIdentity.IsRegistered(app)) ProductIdentity.RequireUnchanged(app);
         var catalog = FastCatalog.ReadRegistry();
         if (catalog.ReadErrors != 0) throw new IOException(L.T("Operation65"));
+        if (!CleanupBoundary.SafeDirectory(app, catalog.Entries)) throw new IOException(L.T("CleanupScopeUnknown"));
         var results = new List<JunkItem>();
         if (CleanupBoundary.SafeDirectory(app, catalog.Entries))
         {
@@ -100,7 +101,7 @@ internal static class BcuTargetedJunkAdapter
         // Only exact product subkeys with a matching explicit InstallLocation value; never delete a publisher root.
         if (!CleanupBoundary.SafeDirectory(app, catalog.Entries)) return results;
         var publisher = app.Publisher.Trim(); var name = app.Name.Trim();
-        if (!SafeSegment(publisher) || !SafeSegment(name) || publisher.Equals(name, StringComparison.OrdinalIgnoreCase)) return results;
+        if (!SafeSegment(publisher) || !SafeSegment(name) || publisher.Equals(name, StringComparison.OrdinalIgnoreCase)) throw new IOException(L.T("CleanupRegistryScopeUnknown"));
         foreach (var hive in new[] { RegistryHive.CurrentUser, RegistryHive.LocalMachine })
             foreach (var view in hive == RegistryHive.CurrentUser ? new[] { RegistryView.Registry64 } : new[] { RegistryView.Registry64, RegistryView.Registry32 })
             {

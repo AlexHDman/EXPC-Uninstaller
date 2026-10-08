@@ -67,7 +67,8 @@ internal sealed partial class MainWindow
         if (action == 0)
         {
             _operationBusy = true; UpdateActionState();
-            try { await _standardRemoval.Run(app, new(), OperationStatus, () => RefreshAfter(app), items => OpenOperation(app, 2, items)); }
+            try { await _standardRemoval.Run(app, new(), OperationStatus, () => RefreshAfter(app),
+                check => OpenOperation(check.Snapshot ?? app, 2, check.Items, check), selected => { using var dialog = new RemovalConfirmation(selected.Name); return dialog.Ask(this); }); }
             finally { _operationBusy = _operationDialog is { IsDisposed: false }; UpdateActionState(); }
             return;
         }
@@ -113,11 +114,11 @@ internal sealed partial class MainWindow
         finally { _operationBusy = false; UpdateActionState(); }
     }
     private void OperationStatus(string text) { _operationStatus = text; _status = text; _tips.SetToolTip(this, text); Invalidate(); }
-    private void OpenOperation(AppEntry app, int action, List<CleanupEntry>? items = null)
+    private void OpenOperation(AppEntry app, int action, List<CleanupEntry>? items = null, CleanupCheck? check = null)
     {
         if (_operationDialog is { IsDisposed: false }) return;
         _icons.TryGetValue(app.Id, out var icon);
-        var dialog = new OperationWindow(app, action, () => RefreshAfter(app), icon ?? _fallbackIcon, initial: items);
+        var dialog = new OperationWindow(app, action, () => RefreshAfter(app), icon ?? _fallbackIcon, initial: items, check: check);
         _operationBusy = true;
         _operationDialog = dialog;
         dialog.FormClosed += (_, _) =>

@@ -91,6 +91,13 @@
   "CleanupSelectionHelp": ["Выберите объекты вручную. Профили и настройки, включая ключи реестра, не отмечены. Неотмеченные вложенные объекты защищены планом удаления.", "Select items manually. Profiles and settings, including registry keys, are unchecked. Unchecked descendants are protected by the deletion plan."],
   "CleanupClose": ["Закрыть без очистки", "Close without cleaning"],
   "CleanupClearLog": ["Очистить", "Clear"],
-  "CleanupCopyLog": ["Копировать", "Copy"],
-  "CleanupSaveLog": ["Сохранить как…", "Save as…"]
+  "CleanupCopyLog": ["Скопировать", "Copy"],
+  "CleanupSaveLog": ["Сохранить как…", "Save as…"],
+  "RemovalQuestion": ["Удалить „{0}“?", "Uninstall “{0}”?"],
+  "CleanupEmpty": ["Остатков не найдено", "No leftovers found"],
+  "CleanupCheckError": ["Проверка остатков не завершена", "Leftover check did not complete"],
+  "CleanupDeferred": ["Проверка остатков отложена: требуется перезагрузка. Очистка недоступна.", "Leftover check deferred: a restart is required. Cleanup is unavailable."],
+  "CleanupStoreNotice": ["Для Microsoft Store адресная зачистка Win32 не применяется. Проверка таких остатков не выполнялась.", "Win32 leftover cleanup does not apply to Microsoft Store. These leftovers were not checked."],
+  "CleanupScopeUnknown": ["Недостаточно подтверждённых путей или сведений о принадлежности папки для адресной проверки. Отсутствие остатков не установлено.", "Insufficient verified paths or folder ownership information for a targeted check. Absence of leftovers is not established."],
+  "CleanupRegistryScopeUnknown": ["Проверка реестра неполная: точная область продукта не подтверждена. Отсутствие остатков не установлено.", "Registry check is incomplete: the exact product scope is unconfirmed. Absence of leftovers is not established."]
 }

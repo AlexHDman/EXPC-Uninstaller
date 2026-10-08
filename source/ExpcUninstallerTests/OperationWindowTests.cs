@@ -37,8 +37,8 @@ public sealed class OperationWindowTests
         {
             var services = new OperationServices { Uninstall = (_, _) => { Interlocked.Increment(ref launched); return pending.Task; },
                 Find = _ => { scanned++; return [new("folder", root, "Operation66")]; } };
-            var run = runner.Run(App, services, _ => { }, () => Task.CompletedTask, _ => shown++);
-            await runner.Run(App, services, _ => { }, () => Task.CompletedTask, _ => shown++);
+            var run = runner.Run(App, services, _ => { }, () => Task.CompletedTask, _ => shown++, _ => true);
+            await runner.Run(App, services, _ => { }, () => Task.CompletedTask, _ => shown++, _ => true);
             Assert.AreEqual(0, scanned); Assert.AreEqual(0, shown);
             pending.SetResult(ProductActions.Completion(0, true, true)); await run;
             Assert.AreEqual(1, launched); Assert.AreEqual(1, scanned); Assert.AreEqual(1, shown);
@@ -46,22 +46,68 @@ public sealed class OperationWindowTests
         finally { Directory.Delete(root, false); }
     }
     [TestMethod]
-    [DataRow(1602, true, true)] [DataRow(1603, true, true)] [DataRow(0, false, true)] [DataRow(0, true, false)] [DataRow(3010, true, true)]
+    [DataRow(1602, true, true)] [DataRow(1603, true, true)] [DataRow(0, false, true)] [DataRow(0, true, false)]
     public async Task CancelErrorUnknownAndRebootCannotScan(int exit, bool absent, bool trace)
     {
+        var scans = 0; var windows = 0;
         await new StandardRemoval().Run(App, new() { Uninstall = (_, _) => Task.FromResult(ProductActions.Completion(exit, absent, trace)),
-            Find = _ => throw new AssertFailedException("No cleanup for unconfirmed removal") }, _ => { }, () => Task.CompletedTask,
-            _ => throw new AssertFailedException("No EXPC window"));
+            Find = _ => { scans++; return []; } }, _ => { }, () => Task.CompletedTask,
+            _ => windows++, _ => true);
+        Assert.AreEqual(0, scans); Assert.AreEqual(0, windows);
     }
     [TestMethod]
-    public async Task EmptySearchAndLaunchErrorOnlyReportStatus()
+    public async Task CancelConfirmationNeverLaunches()
+    {
+        var launches = 0; var scans = 0; var windows = 0;
+        await new StandardRemoval().Run(App, new() { Uninstall = (_, _) => { launches++; return Task.FromResult(ProductActions.Completion(0, true, true)); },
+            Find = _ => { scans++; return []; } }, _ => { }, () => Task.CompletedTask, _ => windows++, _ => false);
+        Assert.AreEqual(0, launches); Assert.AreEqual(0, scans); Assert.AreEqual(0, windows);
+    }
+    [TestMethod]
+    public async Task SearchErrorIsAnExplicitResultAndRefreshFailureDoesNotSkipSearch()
+    {
+        CleanupCheck? shown = null;
+        await new StandardRemoval().Run(App, new() { Uninstall = (_, _) => Task.FromResult(ProductActions.Completion(0, true, true)),
+            Find = _ => throw new IOException("fixture scan failed") }, _ => { }, () => throw new IOException("fixture refresh failed"), c => shown = c, _ => true);
+        Assert.IsNotNull(shown); StringAssert.Contains(shown.Error!, "fixture scan failed"); StringAssert.Contains(shown.Notice!, "fixture refresh failed");
+    }
+    [TestMethod]
+    public async Task SnapshotSurvivesDisappearingRegistrationAndRefresh()
+    {
+        var app = App with { Sources = ["CurrentUser/Registry64/Fixture"], Metadata = new("Fixture", "Fixture", "1", "Vendor", "C:\\Fixture", "C:\\Fixture\\remove.exe", "", "", "", null, "0", "0") };
+        AppEntry? scanned = null; CleanupCheck? shown = null;
+        await new StandardRemoval().Run(app, new() { Uninstall = (_, _) => Task.FromResult(ProductActions.Completion(0,true,true)),
+            Find = saved => { scanned = saved; return []; } }, _ => { }, () => { app.Sources[0] = "changed"; return Task.CompletedTask; }, c => shown = c, _ => true);
+        Assert.IsNotNull(scanned); Assert.AreEqual("CurrentUser/Registry64/Fixture", scanned.Sources[0]); Assert.AreEqual("C:\\Fixture", scanned.Metadata!.Location);
+        Assert.IsNotNull(shown); Assert.IsNull(shown.Error); Assert.AreSame(scanned, shown.Snapshot);
+    }
+    [TestMethod] [DataRow("ru")] [DataRow("en")]
+    public void ConfirmationDefaultsToCancelAndEmptyErrorFormsAreDistinct(string language) => Sta(() =>
+    {
+        L.Select(language); Theme.Select("Glass Amber");
+        using var confirm = new RemovalConfirmation("Fixture");
+        Assert.AreSame(confirm.CancelButton, confirm.AcceptButton); Assert.AreSame((Control)confirm.CancelButton!, confirm.ActiveControl);
+        Assert.AreEqual(DialogResult.Cancel, ((Button)confirm.CancelButton!).DialogResult);
+        Assert.AreEqual(0, confirm.Controls.OfType<TextBox>().Count()); Assert.AreEqual(GlassTeal.Background, confirm.BackColor);
+        using var empty = new OperationWindow(App, 2, () => Task.CompletedTask, initial: [], check: new([]));
+        Assert.AreEqual(L.T("CleanupEmpty"), empty.Status); Assert.AreEqual(0, empty.Tree.Nodes.Count);
+        Assert.AreEqual(GlassTeal.Background, empty.Tree.BackColor);
+        using var error = new OperationWindow(App, 2, () => Task.CompletedTask, initial: [], check: new([], "fixture scan error"));
+        Assert.AreEqual(OperationStage.Finished, error.Stage); Assert.AreEqual("fixture scan error", error.Status);
+        Assert.IsFalse(error.Controls.OfType<TextBox>().Single().Text.Contains(L.T("CleanupEmpty")));
+        Assert.AreEqual(0, Application.OpenForms.Count);
+    });
+    [TestMethod]
+    public async Task EmptySearchShowsResultAndLaunchErrorOnlyReportsStatus()
     {
         var status = "";
+        CleanupCheck? shown = null;
         await new StandardRemoval().Run(App, new() { Uninstall = (_, _) => Task.FromResult(ProductActions.Completion(0, true, true)), Find = _ => [] },
-            s => status = s, () => Task.CompletedTask, _ => throw new AssertFailedException("Empty leftovers must not open a window"));
-        Assert.AreEqual(L.T("Operation20"), status);
+            s => status = s, () => Task.CompletedTask, check => shown = check, _ => true);
+        Assert.IsNotNull(shown); Assert.AreEqual(0, shown.Items.Count); Assert.IsNull(shown.Error);
+        Assert.AreEqual(L.T("CleanupEmpty"), status);
         await new StandardRemoval().Run(App, new() { Uninstall = (_, _) => throw new IOException("fixture launch error") },
-            s => status = s, () => Task.CompletedTask, _ => throw new AssertFailedException("Launch error must not open a window"));
+            s => status = s, () => Task.CompletedTask, _ => throw new AssertFailedException("Launch error must not open a window"), _ => true);
         StringAssert.Contains(status, "fixture launch error");
     }
     [TestMethod]
@@ -167,7 +213,7 @@ public sealed class OperationWindowTests
                     done = true; return ProductActions.Completion(exit, true, true); // registration fact is synthetic
                 },
                 Find = _ => { Assert.IsTrue(done); scanned++; return [new("folder",root,"Operation66")]; }
-            }, _ => { }, () => Task.CompletedTask, _ => { Assert.IsTrue(done); shown++; });
+            }, _ => { }, () => Task.CompletedTask, _ => { Assert.IsTrue(done); shown++; }, _ => true);
             Assert.AreEqual(1, launched); Assert.AreEqual(exit == 0 ? 1 : 0, shown); Assert.AreEqual(shown, scanned);
         }
         finally { Directory.Delete(root, false); }
