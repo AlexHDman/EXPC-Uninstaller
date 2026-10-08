@@ -11,6 +11,26 @@ internal sealed partial class MainWindow
     private OperationWindow? _operationDialog;
     private readonly StandardRemoval _standardRemoval = new();
     private string? _operationStatus;
+    private AppEntry? _unconfirmedRemoval;
+    private readonly LinkLabel _retryLeftovers = new() { AutoSize = true, Visible = false };
+    private void ConfigureLeftoverRetry()
+    {
+        _retryLeftovers.Text = L.T("RetryLeftovers"); _retryLeftovers.LinkColor = GlassTeal.Heading;
+        Controls.Add(_retryLeftovers);
+        void Place() { _retryLeftovers.Location = new Point(12, ClientSize.Height - _retryLeftovers.Height - 5); _retryLeftovers.BringToFront(); }
+        Resize += (_, _) => Place(); Place();
+        _retryLeftovers.Click += async (_, _) =>
+        {
+            if (_operationBusy || _unconfirmedRemoval is not { } app) return;
+            if (!Confirm(L.F("ExternalFinished", app.Name))) return;
+            if (ProductActions.HasKnownRunning(app)) { OperationStatus(L.T("KnownUninstallerRunning")); return; }
+            _operationBusy = true; UpdateActionState(); OperationStatus(L.T("Operation13"));
+            CleanupCheck result;
+            try { result = new(await Task.Run(() => CleanupPlan.Expand(BcuTargetedJunkAdapter.Find(app))), Snapshot: app); }
+            catch (Exception ex) { result = new([], L.T("CleanupCheckError") + ": " + ex.Message, Snapshot: app); }
+            OpenOperation(app, 2, result.Items, result);
+        };
+    }
     private AppEntry? SelectedEntry => _grid.CurrentRow?.Index is int index && index >= 0 && index < _visible.Count && _grid.SelectedRows.Count > 0 ? _visible[index] : null;
     private ToolStripMenuItem ActionItem(int action)
     {
@@ -66,9 +86,10 @@ internal sealed partial class MainWindow
         if (!CanRun(action, app) || app == null) return;
         if (action == 0)
         {
+            _retryLeftovers.Visible = false; _unconfirmedRemoval = null;
             _operationBusy = true; UpdateActionState();
             try { await _standardRemoval.Run(app, new(), OperationStatus, () => RefreshAfter(app),
-                check => OpenOperation(check.Snapshot ?? app, 2, check.Items, check), selected => { using var dialog = new RemovalConfirmation(selected.Name); return dialog.Ask(this); }); }
+                check => OpenOperation(check.Snapshot ?? app, 2, check.Items, check), selected => { using var dialog = new RemovalConfirmation(selected.Name); return dialog.Ask(this); }, pending => { _unconfirmedRemoval = pending; _retryLeftovers.Visible = true; }); }
             finally { _operationBusy = _operationDialog is { IsDisposed: false }; UpdateActionState(); }
             return;
         }

@@ -5,14 +5,16 @@ internal sealed partial class MainWindow
     private void ShowUpdates()
     {
         if (_operationBusy || _versionCancellation != null) return;
-        var entries = (_catalogs[0]?.Entries ?? []).Select(a => (App: a, Result: ResultFor(a)))
-            .Where(x => x.Result?.State is VersionState.Update or VersionState.Manual && ReleaseVersion.Compare(x.Result.Installed, x.Result.Latest) < 0).ToArray();
-        using var dialog = new UpdatesWindow(entries.Select(x => (x.App, x.Result!)).ToArray(), ApplyUpdate);
+        (AppEntry App, VersionResult Result)[] Entries() => (_catalogs[0]?.Entries ?? []).Select(a => (App: a, Result: ResultFor(a)))
+            .Where(x => x.Result != null).Select(x => (x.App, x.Result!)).ToArray();
+        using var dialog = new UpdatesWindow(Entries(), ApplyUpdate, _ignoredUpdates,
+            async (app, owner) => { if (EditSource(app, owner)) await CheckVersions([app]); },
+            apps => CheckVersions(apps), Entries);
         dialog.ShowDialog(this);
     }
     private async Task<string> ApplyUpdate(AppEntry app, VersionResult reviewed, IProgress<string> progress)
     {
-        if (!reviewed.CanInstall || reviewed.Package == null) return L.T("ManagerIdentityReview");
+        if (!UpdatePolicy.Ready(app, reviewed) || reviewed.Package == null) return L.T("ManagerIdentityReview");
         _operationBusy = true; UpdateActionState();
         try
         {
@@ -75,101 +77,129 @@ internal sealed partial class MainWindow
 
 internal sealed class UpdatesWindow : Form
 {
-    public UpdatesWindow((AppEntry App, VersionResult Result)[] entries, Func<AppEntry, VersionResult, IProgress<string>, Task<string>> apply)
+    public UpdatesWindow((AppEntry App, VersionResult Result)[] entries, Func<AppEntry, VersionResult, IProgress<string>, Task<string>> apply,
+        IgnoredUpdates? ignored = null, Func<AppEntry, IWin32Window, Task>? edit = null,
+        Func<AppEntry[], Task>? recheck = null, Func<(AppEntry App, VersionResult Result)[]>? reload = null)
     {
-        Text = L.T("Updates"); ClientSize = new Size(860, 460); MinimumSize = new Size(650, 360); StartPosition = FormStartPosition.CenterParent;
-        AutoScaleMode = AutoScaleMode.Dpi; Font = new Font("Segoe UI", 9);
-        var grid = new DataGridView
-        {
-            Dock = DockStyle.Fill,
-            AllowUserToAddRows = false,
-            AllowUserToDeleteRows = false,
-            RowHeadersVisible = false,
-            SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-            MultiSelect = false,
-            EditMode = DataGridViewEditMode.EditProgrammatically,
-            BorderStyle = BorderStyle.None,
-            CellBorderStyle = DataGridViewCellBorderStyle.None,
-            EnableHeadersVisualStyles = false,
-            ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.None,
-            AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill
-        };
+        ignored ??= new();
+        Text = L.T("Updates"); ClientSize = new Size(900, 520); MinimumSize = new Size(700, 400);
+        StartPosition = FormStartPosition.CenterParent; AutoScaleMode = AutoScaleMode.Dpi; Font = new Font("Segoe UI", 9);
+        var grid = new DataGridView { Dock = DockStyle.Fill, AllowUserToAddRows = false, AllowUserToDeleteRows = false,
+            RowHeadersVisible = false, SelectionMode = DataGridViewSelectionMode.FullRowSelect, MultiSelect = false,
+            EditMode = DataGridViewEditMode.EditProgrammatically, BorderStyle = BorderStyle.None, CellBorderStyle = DataGridViewCellBorderStyle.None,
+            EnableHeadersVisualStyles = false, ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.None, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill };
         grid.Columns.Add(new DataGridViewCheckBoxColumn { Width = 32, AutoSizeMode = DataGridViewAutoSizeColumnMode.None });
-        foreach (var key in new[] { "ProgramColumn", "VersionColumn", "NewColumn", "Source", "UpdateResult" }) grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = L.T(key), ReadOnly = true });
-        foreach (var entry in entries)
+        foreach (var key in new[] { "ProgramColumn", "VersionColumn", "NewColumn", "Source", "UpdateResult" })
+            grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = L.T(key), ReadOnly = true });
+        var log = new TextBox { Dock = DockStyle.Bottom, Height = 85, ReadOnly = true, Multiline = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None };
+        var note = new Label { Dock = DockStyle.Bottom, Height = 48, Padding = new Padding(6) };
+        var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, FlowDirection = FlowDirection.RightToLeft };
+        Button Add(string key) { var b = new Button { Text = L.T(key), AutoSize = true }; buttons.Controls.Add(b); return b; }
+        var close = Add("Close"); var install = Add("InstallSelected"); var ignore = Add("IgnoreSelected"); var restore = Add("RestoreUpdates");
+        var check = Add("RecheckUpdates"); var source = Add("SourceEditor"); var download = Add("DownloadPage");
+        var showIgnored = new CheckBox { Text = L.T("ShowIgnored"), AutoSize = true }; buttons.Controls.Add(showIgnored);
+        Controls.Add(grid); Controls.Add(log); Controls.Add(note); Controls.Add(buttons);
+        bool busy = false, filling = false, cancel = false;
+        var selected = new HashSet<string>();
+        (AppEntry App, VersionResult Result) Entry(DataGridViewRow row) => entries[(int)row.Tag!];
+        string Id(DataGridViewRow row) => row.Cells[0].Tag as string ?? UpdatePolicy.Identity(Entry(row).App);
+        bool Ready(DataGridViewRow row) => !ignored.Contains(Entry(row).App) && UpdatePolicy.Ready(Entry(row).App, Entry(row).Result);
+        DataGridViewRow[] Checked() => grid.Rows.Cast<DataGridViewRow>().Where(r => selected.Contains(Id(r))).ToArray();
+        void Selection()
         {
-            var i = grid.Rows.Add(false, entry.App.Name, entry.Result.Installed, entry.Result.Latest, entry.Result.Source,
-                L.T(entry.Result.SelectionReason));
-            grid.Rows[i].Cells[0].ReadOnly = !entry.Result.CanInstall;
-            grid.Rows[i].Tag = i; // Stable identity even after a text column is sorted.
-            grid.Rows[i].Cells[5].ToolTipText = L.T(entry.Result.SelectionReason)
-                + "\n" + L.T(entry.Result.Compatibility) + "\n" + entry.Result.Source;
+            var rows = Checked(); var ready = rows.Count(Ready);
+            install.Enabled = !busy && ready > 0;
+            ignore.Enabled = restore.Enabled = !busy && rows.Length > 0;
+            source.Enabled = !busy && edit != null && grid.CurrentRow != null;
+            check.Enabled = !busy && recheck != null && rows.Length > 0;
+            download.Enabled = !busy && grid.CurrentRow is { } r && Uri.TryCreate(Entry(r).Result.Source, UriKind.Absolute, out var uri) && uri.Scheme is "https" or "http";
+            note.Text = L.F("UpdateSelectionCount", ready, rows.Length - ready);
         }
-        var log = new TextBox { Dock = DockStyle.Bottom, Height = 80, ReadOnly = true, Multiline = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None };
-        var note = new Label { Text = L.T("UpdateConsent"), Dock = DockStyle.Bottom, Height = 52, Padding = new Padding(8) };
-        var bar = new ProgressBar { Dock = DockStyle.Bottom, Height = 7, Style = ProgressBarStyle.Marquee, Visible = false };
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, FlowDirection = FlowDirection.RightToLeft, AutoSize = true };
-        var close = new Button { Text = UiText.Close, AutoSize = true }; var install = new Button { Text = L.T("InstallSelected"), AutoSize = true };
-        buttons.Controls.AddRange([close, install]); Controls.Add(grid); Controls.Add(log); Controls.Add(note); Controls.Add(bar); Controls.Add(buttons);
-        bool busy = false, cancel = false;
-        var checkedEntries = new HashSet<int>();
-        bool Allowed(DataGridViewRow row) => !row.Cells[0].ReadOnly && entries[(int)row.Tag!].Result.CanInstall;
-        void UpdateSelection() => install.Enabled = !busy && grid.Rows.Cast<DataGridViewRow>().Any(r => Allowed(r) && checkedEntries.Contains((int)r.Tag!));
-        void Toggle(DataGridViewRow row)
-        {
-            if (busy) return;
-            if (!Allowed(row)) { ShowDetails(); return; }
-            row.Cells[0].Value = !checkedEntries.Contains((int)row.Tag!);
-            grid.InvalidateCell(row.Cells[0]);
-        }
-        // Whole checkbox cell, not only the native glyph's content hit rectangle.
-        grid.CellMouseClick += (_, e) => { if (e.Button == MouseButtons.Left && e.RowIndex >= 0 && e.ColumnIndex == 0) Toggle(grid.Rows[e.RowIndex]); };
-        grid.KeyDown += (_, e) =>
-        {
-            if (e.KeyCode != Keys.Space || e.Modifiers != Keys.None) return;
-            e.Handled = e.SuppressKeyPress = true;
-            if (grid.CurrentRow is { } row) Toggle(row);
-        };
-        grid.CellValueChanged += (_, e) =>
-        {
-            if (e.ColumnIndex != 0 || e.RowIndex < 0) return;
-            var row = grid.Rows[e.RowIndex]; var id = (int)row.Tag!;
-            if (Allowed(row) && row.Cells[0].Value is true) checkedEntries.Add(id); else checkedEntries.Remove(id);
-            UpdateSelection();
-        };
-        void ShowDetails()
+        void Details()
         {
             if (!busy && grid.CurrentRow is { } row)
-                log.Text = row.Cells[1].Value + "\r\n" + row.Cells[5].Value + "\r\n" + L.T(entries[(int)row.Tag!].Result.Compatibility) + "\r\n" + row.Cells[4].Value;
+            {
+                var e = Entry(row);
+                log.Text = e.App.Name + "\r\n" + L.T(UpdatePolicy.Reason(e.App, e.Result)) + "\r\n" + L.T(e.Result.Compatibility) + "\r\n" + e.Result.Source;
+            }
+            Selection();
         }
-        grid.CurrentCellChanged += (_, _) => ShowDetails();
-        Shown += (_, _) => ShowDetails();
-        UpdateSelection();
-        close.Click += (_, _) => { if (busy) { cancel = true; close.Enabled = false; log.Text = L.T("CancelUpdateQueue"); } else Close(); };
+        void Fill()
+        {
+            filling = true;
+            var sort = grid.SortedColumn?.Index; var direction = grid.SortOrder;
+            var currentId = grid.CurrentRow is { } old ? Id(old) : null;
+            grid.Rows.Clear();
+            for (var i = 0; i < entries.Length; i++)
+            {
+                var e = entries[i]; if (ignored.Contains(e.App) && !showIgnored.Checked) continue;
+                var reason = L.T(UpdatePolicy.Reason(e.App, e.Result));
+                var index = grid.Rows.Add(selected.Contains(UpdatePolicy.Identity(e.App)), e.App.Name, e.Result.Installed,
+                    e.Result.Latest.Length == 0 ? UiText.Empty : e.Result.Latest, e.Result.Source, L.T("Status" + e.Result.State) + " · " + reason);
+                var row = grid.Rows[index]; row.Tag = i; row.Cells[0].Tag = UpdatePolicy.Identity(e.App);
+                row.Cells[5].ToolTipText = reason + "\n" + L.T(e.Result.Compatibility) + "\n" + e.Result.Source;
+                if (currentId == Id(row)) grid.CurrentCell = row.Cells[1];
+            }
+            if (sort is > 0) grid.Sort(grid.Columns[sort.Value], direction == SortOrder.Descending ? System.ComponentModel.ListSortDirection.Descending : System.ComponentModel.ListSortDirection.Ascending);
+            filling = false; Details();
+        }
+        void Toggle(DataGridViewRow row) { if (!busy) row.Cells[0].Value = !selected.Contains(Id(row)); }
+        grid.CellMouseClick += (_, e) => { if (e.Button == MouseButtons.Left && e.RowIndex >= 0 && e.ColumnIndex == 0) Toggle(grid.Rows[e.RowIndex]); };
+        grid.KeyDown += (_, e) => { if (e.KeyCode == Keys.Space && e.Modifiers == Keys.None) { e.Handled = e.SuppressKeyPress = true; if (grid.CurrentRow is { } r) Toggle(r); } };
+        grid.CellValueChanged += (_, e) =>
+        {
+            if (filling || e.ColumnIndex != 0 || e.RowIndex < 0) return;
+            var row = grid.Rows[e.RowIndex]; if (row.Cells[0].Value is true) selected.Add(Id(row)); else selected.Remove(Id(row)); Selection();
+        };
+        grid.CurrentCellChanged += (_, _) => { if (!filling) Details(); };
+        grid.CellPainting += (_, e) =>
+        {
+            if (e.ColumnIndex != 5 || e.RowIndex < 0) return;
+            e.PaintBackground(e.ClipBounds, true); var r = e.CellBounds; var size = 16 * DeviceDpi / 96;
+            StatusVisual.Draw(e.Graphics!, new Rectangle(r.X + 3, r.Y + (r.Height - size) / 2, size, size), Entry(grid.Rows[e.RowIndex]).Result.State);
+            TextRenderer.DrawText(e.Graphics!, e.FormattedValue?.ToString(), Font, new Rectangle(r.X + size + 7, r.Y, r.Width - size - 7, r.Height), GlassTeal.Text, TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter); e.Handled = true;
+        };
+        async Task Work(Func<Task> action)
+        {
+            busy = true; grid.Enabled = buttons.Enabled = false; string? error = null;
+            try { await action(); }
+            catch (Exception ex) { error = ex.Message; }
+            finally { busy = false; grid.Enabled = buttons.Enabled = true; if (reload != null) entries = reload(); Fill(); if (error != null) log.Text = error; }
+        }
+        source.Click += async (_, _) => { if (grid.CurrentRow is { } row && edit != null) { var app = Entry(row).App; await Work(() => edit(app, this)); } };
+        check.Click += async (_, _) => { if (recheck != null) { var apps = Checked().Select(r => Entry(r).App).ToArray(); await Work(() => recheck(apps)); } };
+        void Ignore(bool value)
+        {
+            try { foreach (var row in Checked()) ignored.Set(Entry(row).App, value); if (reload != null) entries = reload(); Fill(); }
+            catch (Exception ex) { log.Text = ex.Message; }
+        }
+        ignore.Click += (_, _) => Ignore(true); restore.Click += (_, _) => Ignore(false);
+        showIgnored.CheckedChanged += (_, _) => Fill();
+        download.Click += (_, _) => { try { if (grid.CurrentRow is { } row) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(VersionChecker.PublicUrl(Entry(row).Result.Source).AbsoluteUri) { UseShellExecute = true }); } catch (Exception ex) { log.Text = ex.Message; } };
+        close.Click += (_, _) => { if (busy) { cancel = true; log.Text = L.T("CancelUpdateQueue"); } else Close(); };
         install.Click += async (_, _) =>
         {
-            grid.EndEdit(); var selected = grid.Rows.Cast<DataGridViewRow>().Where(r => Allowed(r) && checkedEntries.Contains((int)r.Tag!))
-                .DistinctBy(r => (entries[(int)r.Tag!].Result.Package!.Manager, entries[(int)r.Tag!].Result.Package!.Id, entries[(int)r.Tag!].Result.Package!.Scope)).ToArray();
-            if (selected.Length == 0) return;
-            if (Dialogs.Show(this, L.T("ConfirmUpdates") + "\n" + string.Join("\n", selected.Select(r => entries[(int)r.Tag!].App.Name + " → " + entries[(int)r.Tag!].Result.Latest)), Text,
-                MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
-            busy = true; cancel = false; grid.Enabled = install.Enabled = false; bar.Visible = true; close.Text = L.T("StopQueue");
+            var chosen = Checked(); var ready = chosen.Where(Ready).ToArray(); if (ready.Length == 0) return;
+            var summary = L.F("UpdateSelectionCount", ready.Length, chosen.Length - ready.Length) + "\n" + string.Join("\n", chosen.Select(r => Entry(r).App.Name + ": " + L.T(UpdatePolicy.Reason(Entry(r).App, Entry(r).Result))));
+            if (Dialogs.Show(this, summary, L.T("ConfirmUpdates"), MessageBoxButtons.YesNo, MessageBoxIcon.Question, MessageBoxDefaultButton.Button2) != DialogResult.Yes) return;
+            busy = true; cancel = false; grid.Enabled = showIgnored.Enabled = false; Selection(); close.Text = L.T("StopQueue");
             try
             {
-                foreach (var row in selected)
+                foreach (var row in ready)
                 {
                     if (cancel) break;
-                    var index = (int)row.Tag!;
-                    row.Cells[5].Value = L.T("InstallingUpdate");
-                    var progress = new Progress<string>(text => { log.AppendText(text.ReplaceLineEndings(Environment.NewLine) + Environment.NewLine); if (log.TextLength > 20_000) log.Text = log.Text[^12_000..]; });
-                    row.Cells[5].Value = await apply(entries[index].App, entries[index].Result, progress);
-                    row.Cells[5].ToolTipText = row.Cells[5].Value?.ToString();
-                    row.Cells[0].Value = false; row.Cells[0].ReadOnly = true;
+                    var e = Entry(row);
+                    var outcome = await apply(e.App, e.Result, new Progress<string>(text => log.Text = text));
+                    row.Cells[5].Value = outcome;
+                    row.Cells[5].ToolTipText = row.Cells[5].Value?.ToString(); selected.Remove(Id(row)); row.Cells[0].Value = false;
+                    // The reviewed plan is consumed. Recheck is required before another installation.
+                    var verified = new[] { "UpdateVerified", "UpdateVerifiedReboot", "UpdateVerifiedWithError" }.Any(key => outcome.StartsWith(L.T(key) + " (", StringComparison.Ordinal));
+                    entries[(int)row.Tag!] = (e.App, e.Result with { State = verified ? VersionState.Unchecked : VersionState.Error, Package = null, Reason = "UpdatePlanChanged" });
                 }
             }
-            finally { busy = false; grid.Enabled = close.Enabled = true; UpdateSelection(); bar.Visible = false; close.Text = UiText.Close; }
+            finally { busy = false; grid.Enabled = showIgnored.Enabled = true; close.Text = UiText.Close; Selection(); }
         };
-        FormClosing += (_, e) => { if (busy) { e.Cancel = true; cancel = true; log.Text = L.T("CancelUpdateQueue"); } };
-        Theme.Apply(this);
+        FormClosing += (_, e) => { if (busy) { e.Cancel = true; cancel = true; } };
+        Fill(); Theme.Apply(this);
     }
 }

@@ -135,10 +135,11 @@ internal sealed class OperationWindow : Form
             foreach (var entry in entries.Where(x => x.Section == key).OrderBy(x => x.Path.Length))
             {
                 var parent = section; var path = entry.Path;
-                while (path.LastIndexOf('\\') is var slash && slash >= 0)
+                if (entry.ValueName != null && byPath.TryGetValue((entry.Root, path.ToUpperInvariant()), out var keyNode)) parent = keyNode;
+                while (entry.ValueName == null && path.LastIndexOf('\\') is var slash && slash >= 0)
                 { path = path[..slash]; if (byPath.TryGetValue((entry.Root, path.ToUpperInvariant()), out var found)) { parent = found; break; } }
                 var node = parent.Nodes.Add(entry.DisplayPath); node.Tag = entry; node.ToolTipText = entry.DisplayPath + "\n" + L.T(entry.Root.Evidence);
-                byPath[(entry.Root, entry.Path.ToUpperInvariant())] = node;
+                if (entry.ValueName == null) byPath[(entry.Root, entry.Path.ToUpperInvariant())] = node;
             }
             section.Expand();
         }
@@ -160,7 +161,7 @@ internal sealed class OperationWindow : Form
             node.StateImageIndex = count == 0 ? 0 : count == values.Count ? 1 : 2;
         }
         // A folder in Program files may contain protected entries shown in User data.
-        var parents = _tree.Nodes.Cast<TreeNode>().SelectMany(Nodes).Where(n => n.Tag is CleanupEntry)
+        var parents = _tree.Nodes.Cast<TreeNode>().SelectMany(Nodes).Where(n => n.Tag is CleanupEntry { ValueName: null })
             .ToDictionary(n => ((CleanupEntry)n.Tag!).Root + "|" + ((CleanupEntry)n.Tag!).Path.ToUpperInvariant());
         foreach (var entry in _entries.Where(e => !_selected.Contains(e)))
         {
@@ -209,7 +210,8 @@ internal sealed class OperationWindow : Form
                 var failures = new List<string>();
                 foreach (var entry in _approved)
                 {
-                    try { await Task.Run(() => _services.DeleteEntry(_app, entry)); _entries.Remove(entry); SetStatus(L.T("Operation26") + " " + entry.DisplayPath); }
+                    try { await Task.Run(() => _services.DeleteEntry(_app, entry)); _entries.RemoveAll(x => x == entry || x == (entry with { ApprovedAnchor = null }));
+                        if (entry.ApprovedAnchor != null) _entries.RemoveAll(x => x.Root == entry.Root && x.Path == entry.Path && x.ValueName == "InstallLocation"); SetStatus(L.T("Operation26") + " " + entry.DisplayPath); }
                     catch (Exception ex) { failures.Add(entry.DisplayPath + ": " + ex.Message); SetStatus(failures[^1]); }
                 }
                 Populate(_entries.ToList()); SetStatus(failures.Count == 0 ? L.T("Operation26") : string.Join(Environment.NewLine, failures)); _approved.Clear();

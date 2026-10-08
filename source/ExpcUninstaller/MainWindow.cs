@@ -74,6 +74,7 @@ internal sealed partial class MainWindow : Form
 
         BuildMenu();
         _delete = AddAction(Glyph.Delete, UiText.Delete, false);
+        ConfigureLeftoverRetry();
         _delete.Click += async (_, _) => await RunSelected(0);
         _refresh = AddAction(Glyph.Refresh, UiText.RefreshHint, true);
         _refresh.Click += async (_, _) => await LoadCatalog(true);
@@ -183,7 +184,7 @@ internal sealed partial class MainWindow : Form
         view.DropDownItems.Add(UiText.Language, MenuGlyph(Glyph.Language), (_, _) => PickAppearance(_actions[5], true));
         view.DropDownItems.Add(L.T("ResetColumns"), null, (_, _) => { Program.Settings.ColumnWidths = []; SizeColumns(); SavePreferences(); });
         var help = Top(UiText.Menus[3]);
-        help.DropDownItems.Add(L.T("About"), null, (_, _) => { using var dialog = new DetailWindow(UiText.Title, UiText.Attribution + "\n.NET 10 · win-x64\nApache 2.0 · Licence.txt / NOTICE", null); dialog.ShowDialog(this); });
+        help.DropDownItems.Add(L.T("About"), null, (_, _) => { using var dialog = new DetailWindow(UiText.Title, UiText.Title + " " + typeof(MainWindow).Assembly.GetName().Version + "\n" + L.T("AboutDescription") + "\n\n" + UiText.Attribution + "\n.NET 10 · win-x64\nApache 2.0 · Licence.txt / NOTICE", null); dialog.ShowDialog(this); });
         MainMenuStrip = _menu;
         Controls.Add(_menu);
     }
@@ -449,21 +450,10 @@ internal sealed partial class MainWindow : Form
         if (e.ColumnIndex == 4)
         {
             g.SmoothingMode = SmoothingMode.AntiAlias;
-            var r = new Rectangle(bounds.X + (bounds.Width - S(18)) / 2, bounds.Y + (bounds.Height - S(18)) / 2, S(18), S(18));
             var state = DisplayState(ResultFor(_visible[e.RowIndex]));
-            var color = state switch { VersionState.Current => Color.FromArgb(69, 143, 97), VersionState.Update => Color.FromArgb(190, 139, 43), VersionState.EndOfSupport => Color.FromArgb(156, 74, 91), VersionState.Error => Color.FromArgb(180, 88, 62), VersionState.Manual => Color.FromArgb(107, 108, 164), _ => Color.FromArgb(78, 102, 118) };
-            using var brush = new SolidBrush(color);
-            g.FillEllipse(brush, r);
-            using var pen = new Pen(GlassTeal.Muted);
-            g.DrawEllipse(pen, r);
-            if (ResultFor(_visible[e.RowIndex])?.CanInstall == true)
-            {
-                using var ring = new Pen(Color.FromArgb(50, 202, 110), S(1.4f));
-                g.DrawEllipse(ring, Rectangle.Inflate(r, S(3), S(3)));
-            }
-            using var textBrush = new SolidBrush(Color.White);
-            using var centered = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-            g.DrawString(state switch { VersionState.Unchecked => "…", VersionState.Current => "=", VersionState.Update => "↑", VersionState.Error => "!", VersionState.Authentication => "●", VersionState.Ambiguous => "±", VersionState.EndOfSupport => "×", VersionState.Manual => "i", VersionState.Cancelled => "–", _ => "?" }, Font, textBrush, r, centered);
+            StatusVisual.Draw(g, new Rectangle(bounds.X + S(4), bounds.Y + (bounds.Height - S(17)) / 2, S(17), S(17)), state);
+            TextRenderer.DrawText(g, StatusName(state), Font, new Rectangle(bounds.X + S(25), bounds.Y, Math.Max(0, bounds.Width - S(27)), bounds.Height), GlassTeal.Text, TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter);
+
         }
         else
         {

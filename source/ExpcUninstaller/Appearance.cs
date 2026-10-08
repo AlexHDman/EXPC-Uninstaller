@@ -51,16 +51,16 @@ internal static class UiText
 internal static class GlassTeal
 {
     public static bool Amber => Theme.Selected == "Glass Amber";
-    public static Color Heading => Amber ? Color.FromArgb(255, 202, 74) : Text;
-    public static Color Background => Theme.Light ? Color.FromArgb(246, 247, 248) : Amber ? Color.FromArgb(32, 29, 24) : Color.FromArgb(27, 32, 36);
-    public static Color Surface => Amber ? Color.FromArgb(74, 53, 25) : Theme.Blend(Background, Theme.Accent, Theme.Light ? .09f : .12f);
-    public static Color Stripe => Theme.Light ? Color.FromArgb(234, 237, 239) : Amber ? Color.FromArgb(40, 36, 29) : Color.FromArgb(32, 38, 42);
+    public static Color Heading => Amber ? Color.FromArgb(255, 202, 74) : Theme.Light ? Text : Theme.Blend(Theme.Accent, Color.White, .3f);
+    public static Color Background => Theme.Light ? Color.FromArgb(246, 247, 248) : Amber ? Color.FromArgb(32, 29, 24) : Theme.Selected switch { "Glass Ruby" => Color.FromArgb(45, 27, 34), "Glass Blue" => Color.FromArgb(23, 31, 48), "Glass Teal" => Color.FromArgb(19, 38, 35), _ => Color.FromArgb(25, 29, 36) };
+    public static Color Surface => Amber ? Color.FromArgb(74, 53, 25) : Theme.Blend(Background, Theme.Accent, Theme.Light ? .09f : .26f);
+    public static Color Stripe => Theme.Light ? Color.FromArgb(234, 237, 239) : Amber ? Color.FromArgb(40, 36, 29) : Theme.Blend(Background, Theme.Accent, .06f);
     public static Color Border => Theme.Light ? Color.FromArgb(191, 202, 207) : Amber ? Color.FromArgb(139, 100, 40) : Color.FromArgb(48, 65, 72);
     public static Color Text => Theme.Light ? Color.FromArgb(28, 36, 42) : Color.FromArgb(230, 241, 245);
     public static Color Muted => Theme.Light ? Color.FromArgb(84, 101, 112) : Theme.Selected == "Glass Amber" ? Color.FromArgb(172, 170, 162) : Color.FromArgb(136, 164, 176);
     public static Color Accent => Theme.Accent;
-    public static Color Selection => Amber ? Color.FromArgb(122, 83, 24) : Theme.Blend(Background, Theme.Accent, .24f);
-    public static Color Caption => Amber ? Color.FromArgb(91, 63, 25) : Theme.Blend(Background, Theme.Accent, .14f);
+    public static Color Selection => Amber ? Color.FromArgb(122, 83, 24) : Theme.Blend(Background, Theme.Accent, Theme.Light ? .24f : .38f);
+    public static Color Caption => Amber ? Color.FromArgb(91, 63, 25) : Theme.Blend(Background, Theme.Accent, Theme.Light ? .14f : .28f);
     public static readonly Color StatusTop = Color.FromArgb(84, 110, 125);
     public static readonly Color StatusBottom = Color.FromArgb(40, 60, 73);
     public static readonly Color ButtonSelected = Color.FromArgb(25, 103, 118);
@@ -132,7 +132,7 @@ internal sealed class GlassButton : Control
         var old = g.Save();
         g.TranslateTransform((Width - size) / 2, (Height - size) / 2);
         g.ScaleTransform(size / 24, size / 24);
-        Color Ink(Color color) => Color.FromArgb(ActionEnabled ? 255 : 120, color);
+        Color Ink(Color color) => Color.FromArgb(ActionEnabled ? 255 : 120, GlassTeal.Amber && Glyph is not (Glyph.Programs or Glyph.Store or Glyph.Application or Glyph.Theme or Glyph.Language) ? Theme.Blend(color, Color.FromArgb(255, 176, 35), .65f) : color);
         using var pen = new Pen(Ink(GlassTeal.Text), 1.6f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
         using var teal = new Pen(Ink(Color.FromArgb(74, 194, 183)), 2.4f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
         using var blue = new LinearGradientBrush(new Rectangle(0, 0, 24, 24), Ink(Color.FromArgb(49, 177, 255)), Ink(Color.FromArgb(0, 75, 225)), 90);

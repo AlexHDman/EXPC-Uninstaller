@@ -7,6 +7,8 @@ internal sealed partial class MainWindow
     private readonly List<VersionRule> _rules = VersionChecker.Rules();
     private readonly Dictionary<string, VersionRule> _bindings = PortableData.Load<Dictionary<string, VersionRule>>("sources");
     private readonly Dictionary<string, VersionResult> _versions = PortableData.Load<Dictionary<string, VersionResult>>("versions");
+    private readonly IgnoredUpdates _ignoredUpdates = new();
+    private readonly HashSet<string> _checking = [];
     private readonly PackageManagers _managers = new();
     private CancellationTokenSource? _versionCancellation;
     private bool _lastCheckCancelled;
@@ -22,12 +24,14 @@ internal sealed partial class MainWindow
     private VersionRule? RuleFor(AppEntry app) => _bindings.GetValueOrDefault(PortableData.Identity(app)) ?? VersionChecker.Resolve(app, _rules);
     private VersionResult? ResultFor(AppEntry app)
     {
+        if (_ignoredUpdates.Contains(app)) return new(VersionState.Ignored, app.Version, "", "", null, DateTimeOffset.UtcNow, "StatusIgnored", "CompatibilityUnknown", "");
+        if (_checking.Contains(PortableData.Identity(app))) return new(VersionState.Checking, app.Version, "", "", null, DateTimeOffset.UtcNow, "StatusChecking", "CompatibilityUnknown", "");
         var value = _versions.GetValueOrDefault(PortableData.Identity(app));
         return value?.Installed == app.Version && value.RuleStamp == (RuleFor(app)?.Stamp ?? "") ? value : null;
     }
     private static string StatusName(VersionState state) => L.T("Status" + state);
     internal static VersionState DisplayState(VersionResult? result) => result == null ? VersionState.Unchecked
-        : result.State == VersionState.Update && !result.CanInstall ? VersionState.Manual : result.State;
+        : result.State;
     private async Task CheckAllPrograms()
     {
         if (_operationBusy) return;
@@ -46,7 +50,8 @@ internal sealed partial class MainWindow
     private async Task CheckVersions(IEnumerable<AppEntry> entries)
     {
         if (_versionCancellation != null) { _versionCancellation.Cancel(); return; }
-        var apps = entries.ToArray(); if (apps.Length == 0) return;
+        var apps = entries.Where(a => !_ignoredUpdates.Contains(a)).ToArray(); if (apps.Length == 0) return;
+        _checking.UnionWith(apps.Select(PortableData.Identity)); _grid.Invalidate();
         _lastCheckCancelled = false;
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         _versionCancellation = cancellation;
@@ -68,7 +73,7 @@ internal sealed partial class MainWindow
                 await slots.WaitAsync(cancellation.Token);
                 try
                 {
-                    var key = PortableData.Identity(app); var rule = RuleFor(app); var previous = ResultFor(app);
+                    var key = PortableData.Identity(app); var rule = RuleFor(app); var previous = _versions.GetValueOrDefault(key);
                     // Regex/JSON parsing must not run on the UI synchronization context.
                     VersionResult result;
                     var custom = _bindings.ContainsKey(key);
@@ -81,7 +86,7 @@ internal sealed partial class MainWindow
                         if (!custom && rule != null && (result.Reason == "NoRule" || result.State == VersionState.Error))
                             result = await Task.Run(() => new VersionChecker().Check(app, rule, cancellation.Token, previous));
                     }
-                    _versions[key] = result;
+                    _versions[key] = result; _checking.Remove(key);
                     _status = L.F("CheckProgress", ++completed, apps.Length); Invalidate(); _grid.Invalidate();
                 }
                 finally { slots.Release(); }
@@ -92,7 +97,7 @@ internal sealed partial class MainWindow
         finally
         {
             _lastCheckCancelled = cancellation.IsCancellationRequested;
-            _versionCancellation = null;
+            _versionCancellation = null; _checking.Clear();
             if (!_lifetime.IsCancellationRequested)
             {
                 _status = L.F(cancellation.IsCancellationRequested ? "CheckCancelled" : "CheckFinished", completed, apps.Length);
@@ -129,10 +134,10 @@ internal sealed partial class MainWindow
             + "\n" + (result?.Source ?? UiText.Empty) + "\n" + ((result?.CheckedAt ?? result?.AttemptedAt)?.ToLocalTime().ToString("g") ?? UiText.Empty)
             + "\n" + L.T("ClickDetails");
     }
-    private void EditSource(AppEntry app)
+    private bool EditSource(AppEntry app, IWin32Window? owner = null)
     {
         using var dialog = new SourceWindow(app, RuleFor(app), _vault, _managers);
-        if (dialog.ShowDialog(this) != DialogResult.OK) return;
+        if (dialog.ShowDialog(owner ?? this) != DialogResult.OK) return false;
         var key = PortableData.Identity(app);
         var updated = new Dictionary<string, VersionRule>(_bindings);
         if (dialog.Rule == null) updated.Remove(key); else updated[key] = dialog.Rule;
@@ -140,9 +145,9 @@ internal sealed partial class MainWindow
         {
             PortableData.Save("sources", updated);
             _bindings.Clear(); foreach (var pair in updated) _bindings.Add(pair.Key, pair.Value);
-            _versions.Remove(key); _grid.Invalidate();
+            _versions.Remove(key); PortableData.Save("versions", _versions); _grid.Invalidate(); return true;
         }
-        catch (Exception ex) { ShowDataError(ex); }
+        catch (Exception ex) { ShowDataError(ex); return false; }
     }
     private void ShowDataError(Exception ex) => Dialogs.Show(this, L.T("DataSaveError") + "\n" + ex.Message, UiText.Title, MessageBoxButtons.OK, MessageBoxIcon.Warning);
     private void SavePreferences()
@@ -165,6 +170,7 @@ internal sealed partial class MainWindow
         for (var i = 0; i < _actions.Count; i++) { _tips.SetToolTip(_actions[i], tips[i]); _actions[i].AccessibleName = tips[i]; }
         string[] captions = [UiText.Minimize, UiText.Maximize, UiText.Close];
         for (var i = 0; i < 3; i++) { _tips.SetToolTip(_caption[i], captions[i]); _caption[i].AccessibleName = captions[i]; }
+        _retryLeftovers.Text = L.T("RetryLeftovers");
         _status = UiText.Ready; RefreshMenus(); RefreshTray(); LayoutShell(); ApplyView(); Invalidate(true);
     }
     private void RefreshMenus()
@@ -235,8 +241,11 @@ internal sealed class DetailWindow : Form
         Text = title; ClientSize = new Size(570, 390); MinimumSize = new Size(460, 280); StartPosition = FormStartPosition.CenterParent;
         AutoScaleMode = AutoScaleMode.Dpi; Font = new Font("Segoe UI", 9);
         var text = new TextBox { Text = content.ReplaceLineEndings(Environment.NewLine), Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, BorderStyle = BorderStyle.None };
-        var close = new Button { Text = UiText.Close, Dock = DockStyle.Bottom, Height = 34, DialogResult = DialogResult.Cancel };
-        Controls.Add(text); Controls.Add(close); CancelButton = close;
+        var close = new Button { Text = UiText.Close, Size = new Size(110, 30), DialogResult = DialogResult.Cancel };
+        var footer = new Panel { Dock = DockStyle.Bottom, Height = 42 }; footer.Controls.Add(close);
+        void CenterClose() => close.Location = new Point((footer.ClientSize.Width - close.Width) / 2, 6);
+        footer.Resize += (_, _) => CenterClose(); CenterClose();
+        Controls.Add(text); Controls.Add(footer); CancelButton = close;
         Shown += (_, _) => { text.SelectionLength = 0; close.Focus(); };
         if (!string.IsNullOrEmpty(source))
         {

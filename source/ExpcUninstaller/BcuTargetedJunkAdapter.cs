@@ -42,7 +42,13 @@ internal static class CleanupBoundary
         // The installation root AND uninstaller location must agree. Name resemblance alone never qualifies.
         ProcessStartCommand command;
         try { command = UninstallCommand.Parse(app.Metadata.Uninstall, _ => true); } catch { return false; }
-        if (!Within(command.FileName, path)) return false;
+        if (!Within(command.FileName, path))
+        {
+            var icon = LazyIcons.Parse(app.Metadata.Icon).Path;
+            if (app.Metadata.WindowsInstaller != "1" || !Guid.TryParse(app.Metadata.KeyName, out _) ||
+                !System.IO.Path.GetFileName(command.FileName).Equals("msiexec.exe", StringComparison.OrdinalIgnoreCase) ||
+                !LocalPath(icon) || !Within(icon, path)) return false;
+        }
         if (!string.IsNullOrWhiteSpace(app.Publisher) && System.IO.Path.GetFileName(path).Equals(app.Publisher.Trim(), StringComparison.OrdinalIgnoreCase)) return false;
         foreach (var other in all.Where(x => x.Metadata != null && !x.Sources.Intersect(app.Sources).Any()))
         {
@@ -81,6 +87,32 @@ internal static class CleanupBoundary
 
 internal static class BcuTargetedJunkAdapter
 {
+    public static string[] CaptureDataPaths(AppEntry app)
+    {
+        if (app.Metadata == null || app.Store) return app.LinkedDataPaths.ToArray();
+        var result = new List<string>(app.LinkedDataPaths);
+        try
+        {
+            if (!SafeSegment(app.Publisher) || !SafeSegment(app.Name)) return result.ToArray();
+            RegistryBoundary.NoLinks(RegistryHive.CurrentUser, RegistryView.Registry64, @"SOFTWARE\" + app.Publisher.Trim() + @"\" + app.Name.Trim());
+            using var key = Registry.CurrentUser.OpenSubKey(@"SOFTWARE\" + app.Publisher.Trim() + @"\" + app.Name.Trim());
+            if (key?.GetValue("InstallLocation") is not string location || !CleanupBoundary.LocalPath(location) ||
+                !CleanupBoundary.LocalPath(app.Metadata.Location) || !CleanupBoundary.Normalize(location).Equals(CleanupBoundary.Normalize(app.Metadata.Location), StringComparison.OrdinalIgnoreCase)) return result.ToArray();
+            foreach (var field in new[] { "UserDataPath", "DataPath", "ProfilePath" })
+                if (key.GetValue(field) is string path && SafeLinkedData(app, path)) result.Add(CleanupBoundary.Normalize(path));
+        } catch (Exception ex) { throw new IOException(L.T("DataScopeUnavailable"), ex); }
+        return result.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+    private static bool SafeUserData(string path) => CleanupBoundary.LocalPath(path) && new[] { Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) }
+        .Any(root => root.Length > 0 && CleanupBoundary.Within(path, root) && path.TrimEnd('\\').Length > root.Length + 2);
+    internal static bool SafeLinkedData(AppEntry app, string path)
+    {
+        if (!SafeUserData(path)) return false;
+        static string Token(string text) => new(text.Where(char.IsLetterOrDigit).Select(char.ToUpperInvariant).ToArray());
+        var name = app.Version.Length == 0 ? app.Name : app.Name.Replace(app.Version, "", StringComparison.OrdinalIgnoreCase).Replace("version", "", StringComparison.OrdinalIgnoreCase).Trim();
+        var leaf = Token(System.IO.Path.GetFileName(path.TrimEnd('\\')));
+        return leaf.Length >= 3 && leaf != Token(app.Publisher) && (leaf == Token(name) || leaf == Token(app.Name));
+    }
     public static List<JunkItem> Find(AppEntry app)
     {
         if (app.Store || app.Protected || app.Metadata == null) return [];
@@ -107,12 +139,18 @@ internal static class BcuTargetedJunkAdapter
             {
                 var path = @"SOFTWARE\" + publisher + @"\" + name;
                 using var root = RegistryKey.OpenBaseKey(hive, view);
+                RegistryBoundary.NoLinks(hive, view, path);
                 using var key = root.OpenSubKey(path);
-                if (key == null || key.GetSubKeyNames().Length != 0) continue; // No nested product/component keys in Phase 03.
+                if (key == null) continue;
                 var location = key.GetValue("InstallLocation", null, RegistryValueOptions.DoNotExpandEnvironmentNames) as string;
                 if (location != null && CleanupBoundary.LocalPath(location) && CleanupBoundary.Normalize(location).Equals(CleanupBoundary.Normalize(app.Metadata.Location), StringComparison.OrdinalIgnoreCase))
                     results.Add(new("registry", path, "Operation67", hive, view));
             }
+        foreach (var data in CaptureDataPaths(app).Where(path => SafeLinkedData(app, path)))
+        {
+            if (!Directory.Exists(data) || catalog.Entries.Any(other => !other.Sources.Intersect(app.Sources).Any() && other.Metadata is { } m && CleanupBoundary.LocalPath(m.Location) && CleanupBoundary.Overlap(m.Location, data))) continue;
+            CleanupBoundary.InspectTree(data); results.Add(new("folder", data, "LinkedUserData"));
+        }
         return results.Distinct().ToList();
     }
     private static bool SafeSegment(string value) => value.Length >= 3 && value.IndexOfAny(['\\', '/', '"', '\r', '\n']) < 0 && !new[] { "Microsoft", "Windows", "Classes" }.Contains(value, StringComparer.OrdinalIgnoreCase);
@@ -144,8 +182,9 @@ internal static class BcuTargetedJunkAdapter
 
 internal static class RegistryBackup
 {
-    public static async Task Delete(RegistryHive hive, RegistryView view, string path, bool leafOnly = false)
+    public static async Task Delete(RegistryHive hive, RegistryView view, string path, bool leafOnly = false, string? valueName = null, string? fingerprint = null, string? approvedAnchor = null)
     {
+        RegistryBoundary.NoLinks(hive, view, path);
         var full = (hive == RegistryHive.LocalMachine ? "HKEY_LOCAL_MACHINE" : "HKEY_CURRENT_USER") + @"\" + path;
         if (hive is not (RegistryHive.LocalMachine or RegistryHive.CurrentUser) || path.IndexOfAny(['"', '\r', '\n']) >= 0 || path.Split('\\').Length < 3)
             throw new IOException(L.T("Operation68"));
@@ -161,13 +200,33 @@ internal static class RegistryBackup
             ArgumentList = { "export", full, backup }
         }) ?? throw new IOException(L.T("Operation69")))
         {
-            await export.WaitForExitAsync();
+            await export.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30));
             if (export.ExitCode != 0 || !File.Exists(backup) || new FileInfo(backup).Length < 40) throw new IOException(L.T("Operation70"));
         }
         File.WriteAllText(backup + ".txt", "Restore using reg.exe import with /reg:" + (view == RegistryView.Registry32 ? "32" : "64") + Environment.NewLine + full);
         OperationLog.Write("registry-backup", full, backup);
+        RegistryBoundary.NoLinks(hive, view, path);
         using var root = RegistryKey.OpenBaseKey(hive, view);
-        try { if (leafOnly) root.DeleteSubKey(path, true); else root.DeleteSubKeyTree(path, true); }
+        try
+        {
+            if (valueName != null)
+            {
+                using var key = root.OpenSubKey(path, true) ?? throw new IOException(L.T("Operation27"));
+                if (!key.GetValueNames().Contains(valueName) || CleanupPlan.Fingerprint(key, valueName) != fingerprint) throw new IOException(L.T("Operation27"));
+                key.DeleteValue(valueName, true); return;
+            }
+            if (leafOnly)
+            {
+                using (var key = root.OpenSubKey(path))
+                {
+                    if (key == null || key.SubKeyCount != 0) throw new IOException(L.T("Operation27"));
+                    var values = key.GetValueNames();
+                    if (values.Length != 0 && !(values.Length == 1 && values[0] == "InstallLocation" && approvedAnchor != null && CleanupPlan.Fingerprint(key, "InstallLocation") == approvedAnchor)) throw new IOException(L.T("Operation27"));
+                }
+                root.DeleteSubKey(path, true);
+            }
+            else root.DeleteSubKeyTree(path, true);
+        }
         catch (UnauthorizedAccessException) when (!leafOnly && hive == RegistryHive.LocalMachine)
         {
             // Only this approved key is elevated, never the shell, and only after an access-denied result.

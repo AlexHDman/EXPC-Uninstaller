@@ -11,6 +11,7 @@ internal sealed record AppEntry(string Id, string Name, string Version, long? Si
     public string[] Sources { get; init; } = [];
     public bool Protected { get; init; }
     public string? StoreLocation { get; init; }
+    public string[] LinkedDataPaths { get; init; } = [];
 }
 
 // No discovery pipeline, MSI queries, startup enumeration, directory traversal or writes.

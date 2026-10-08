@@ -122,9 +122,25 @@ internal static class OperationLog
 
 internal static class ProductActions
 {
+    private static readonly ConcurrentDictionary<string, ConcurrentDictionary<int, DateTime>> Observed = new();
+    internal static void Track(AppEntry app, Process process) => Observed.GetOrAdd(app.Id, _ => new())[process.Id] = process.StartTime;
+    internal static bool HasKnownRunning(AppEntry app)
+    {
+        if (!Observed.TryGetValue(app.Id, out var known)) return false;
+        foreach (var pair in known)
+            try { using var process = Process.GetProcessById(pair.Key); if (process.StartTime == pair.Value && !process.HasExited) return true; }
+            catch (ArgumentException) { } catch { return true; }
+        return false;
+    }
+    [DllImport("msi.dll", CharSet = CharSet.Unicode)] private static extern int MsiQueryProductState(string product);
+    internal static bool MsiFallback(string file, string? code, bool absent, int exit, int productState) =>
+        Path.GetFileName(file).Equals("msiexec.exe", StringComparison.OrdinalIgnoreCase) && Guid.TryParse(code, out _)
+        && absent && exit is 0 or 3010 or 1641 && productState == -1;
     public static async Task<OperationResult> Uninstall(AppEntry app, CancellationToken cancellation)
     {
         if (app.Protected) throw new InvalidOperationException(L.T("Operation45"));
+        using var observation = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        observation.CancelAfter(TimeSpan.FromMinutes(30)); cancellation = observation.Token;
         OperationLog.Write("uninstall-start", app.Id, app.Name);
         OperationResult result;
         try
@@ -148,7 +164,13 @@ internal static class ProductActions
                 if (process == null) throw new IOException(L.T("Operation47"));
                 using (process)
                 {
-                    await ProcessFamily.Wait(process, trace, cancellation);
+                    Track(app, process);
+                    try { await ProcessFamily.Wait(process, trace, cancellation, child => Track(app, child)); }
+                    catch (Exception ex) when (ex is Win32Exception or IOException or InvalidOperationException)
+                    {
+                        OperationLog.Write("uninstall-observation-error", app.Id, ex.ToString());
+                        return new("unconfirmed", L.T("Operation53"));
+                    }
                     OperationLog.Write("uninstall-observation", app.Id, JsonSerializer.Serialize(new { trace.Available, trace.FailureReason }));
                     var exit = process.ExitCode;
                     if (exit != 0 && exit != 3010 && exit != 1641) result = Completion(exit, false, trace.Available);
@@ -163,7 +185,10 @@ internal static class ProductActions
                             if (absent >= 3) break;
                             await Task.Delay(500, cancellation);
                         }
-                        result = Completion(exit, absent >= 3, trace.Available);
+                        var fallback = !trace.Available && app.Metadata.WindowsInstaller == "1" && Guid.TryParse(app.Metadata.KeyName, out _)
+                            && MsiFallback(command.FileName, app.Metadata.KeyName, absent >= 3, exit, MsiQueryProductState(app.Metadata.KeyName));
+                        OperationLog.Write("uninstall-completion-evidence", app.Id, JsonSerializer.Serialize(new { exit, absent, trace.Available, msiFallback = fallback }));
+                        result = Completion(exit, absent >= 3, trace.Available || fallback);
                     }
                 }
             }
@@ -245,7 +270,7 @@ internal static class ProcessFamily
         }
         finally { CloseHandle(handle); }
     }
-    public static async Task Wait(Process root, ProcessStartEvents trace, CancellationToken token)
+    public static async Task Wait(Process root, ProcessStartEvents trace, CancellationToken token, Action<Process>? track = null)
     {
         var known = new HashSet<int> { root.Id }; var processes = new Dictionary<int, Process>();
         var start = root.StartTime; var quiet = 0;
@@ -264,7 +289,7 @@ internal static class ProcessFamily
                     changed = false;
                     foreach (var p in snapshot.Where(x => known.Contains(x.Parent) && !known.Contains(x.Id)))
                     {
-                        try { var child = Process.GetProcessById(p.Id); if (child.StartTime >= start) { known.Add(p.Id); processes.Add(p.Id, child); changed = true; } else child.Dispose(); }
+                        try { var child = Process.GetProcessById(p.Id); if (child.StartTime >= start) { known.Add(p.Id); processes.Add(p.Id, child); track?.Invoke(child); changed = true; } else child.Dispose(); }
                         catch (ArgumentException) { known.Add(p.Id); changed = true; }
                     }
                 } while (changed);

@@ -38,7 +38,7 @@ public sealed class IconAndStatusTests
     {
         var now = DateTimeOffset.UtcNow;
         var web = new VersionResult(VersionState.Update, "1.0", "2.0", "https://example.com", now, now, "ComparedBranch", "CompatibilityUnknown", "");
-        Assert.AreEqual(VersionState.Manual, MainWindow.DisplayState(web)); Assert.IsFalse(web.CanInstall);
+        Assert.AreEqual(VersionState.Update, MainWindow.DisplayState(web)); Assert.IsFalse(web.CanInstall);
         Assert.AreEqual(VersionState.Unchecked, MainWindow.DisplayState(null));
         Assert.AreEqual(VersionState.Unknown, MainWindow.DisplayState(web with { State = VersionState.Unknown }));
         foreach (var state in new[] { VersionState.Current, VersionState.Error, VersionState.Authentication, VersionState.Ambiguous, VersionState.Cancelled })

@@ -7,7 +7,7 @@ using System.Text.RegularExpressions;
 
 namespace ExpcUninstaller;
 
-internal enum VersionState { Unchecked, Unknown, Current, Update, EndOfSupport, Manual, Error, Cancelled, Authentication, Ambiguous }
+internal enum VersionState { Unchecked, Unknown, Current, Update, EndOfSupport, Manual, Error, Cancelled, Authentication, Ambiguous, Checking, Ignored }
 internal sealed record VersionResult(VersionState State, string Installed, string Latest, string Source,
     DateTimeOffset? CheckedAt, DateTimeOffset AttemptedAt, string Reason, string Compatibility, string RuleStamp)
 {
@@ -16,6 +16,7 @@ internal sealed record VersionResult(VersionState State, string Installed, strin
         && Package is { Applicable: true, IdentityConfirmed: true, Pinned: false, Error.Length: 0 }
         && Package.Installed == Installed && Package.Latest == Latest && Package.Manager is "WinGet" or "Chocolatey" or "Scoop";
     public string SelectionReason => CanInstall ? "ReadyForUpdate"
+        : Package is null && State == VersionState.Update ? "SourceOnlyUpdate"
         : Package is null ? Reason == "ManagerReady" ? "ManagerIdentityReview" : Reason
         : Package.Pinned ? "ManagerPinned"
         : !Package.IdentityConfirmed ? "ManagerIdentityReview"
