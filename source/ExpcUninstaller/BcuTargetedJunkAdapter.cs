@@ -87,6 +87,8 @@ internal static class CleanupBoundary
     }
 }
 
+internal sealed record TargetedScan(List<JunkItem> Items, string? Warning, int CheckedScopes);
+
 internal static class BcuTargetedJunkAdapter
 {
     public static string[] CaptureDataPaths(AppEntry app)
@@ -115,46 +117,76 @@ internal static class BcuTargetedJunkAdapter
         var leaf = Token(System.IO.Path.GetFileName(path.TrimEnd('\\')));
         return leaf.Length >= 3 && leaf != Token(app.Publisher) && (leaf == Token(name) || leaf == Token(app.Name));
     }
+    internal static string[] CaptureInstallPaths(AppEntry app, IEnumerable<AppEntry> catalog)
+    {
+        if (app.Metadata is not { } metadata) return [];
+        var candidates = new List<string>(app.ConfirmedInstallPaths) { metadata.Location };
+        var icon = LazyIcons.Parse(metadata.Icon.Length == 0 ? app.IconPath ?? "" : metadata.Icon).Path;
+        if (CleanupBoundary.LocalPath(icon)) candidates.Add(Path.GetDirectoryName(icon)!);
+        try { var command = UninstallCommand.Parse(metadata.Uninstall, _ => true); if (CleanupBoundary.LocalPath(command.FileName)) candidates.Add(Path.GetDirectoryName(command.FileName)!); } catch { }
+        return candidates.Where(CleanupBoundary.LocalPath).Select(CleanupBoundary.Normalize).Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(path => CleanupBoundary.SafeDirectory(app with { Metadata = metadata with { Location = path } }, catalog)).ToArray();
+    }
     public static List<JunkItem> Find(AppEntry app, CancellationToken token = default)
     {
+        var result = Scan(app, token);
+        if (result.CheckedScopes == 0 && result.Warning != null) throw new IOException(result.Warning);
+        return result.Items;
+    }
+    internal static TargetedScan Scan(AppEntry app, CancellationToken token = default, CatalogResult? catalogOverride = null)
+    {
         token.ThrowIfCancellationRequested();
-        if (app.Store || app.Protected || app.Metadata == null) return [];
+        if (app.Store || app.Protected || app.Metadata == null) return new([], L.T("CleanupScopeUnknown"), 0);
         if (ProductIdentity.IsRegistered(app)) ProductIdentity.RequireUnchanged(app);
-        var catalog = FastCatalog.ReadRegistry();
+        var catalog = catalogOverride ?? FastCatalog.ReadRegistry();
         if (catalog.ReadErrors != 0) throw new IOException(L.T("Operation65"));
-        if (!CleanupBoundary.SafeDirectory(app, catalog.Entries)) throw new IOException(L.T("CleanupScopeUnknown"));
-        var results = new List<JunkItem>();
-        if (CleanupBoundary.SafeDirectory(app, catalog.Entries))
+        var results = new List<JunkItem>(); var warnings = new List<string>(); int checkedScopes = 0;
+        void CheckScope(Action action)
         {
-            var path = CleanupBoundary.Normalize(app.Metadata.Location);
-            if (Directory.Exists(path))
-            {
-                CleanupBoundary.InspectTree(path, token);
-                results.Add(new("folder", path, "Operation66"));
-            }
+            token.ThrowIfCancellationRequested();
+            try { action(); checkedScopes++; }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException) { warnings.Add(ex.Message); }
         }
-        // Only exact product subkeys with a matching explicit InstallLocation value; never delete a publisher root.
-        if (!CleanupBoundary.SafeDirectory(app, catalog.Entries)) return results;
+        static bool ExistingDirectory(string path)
+        {
+            try { return (File.GetAttributes(path) & FileAttributes.Directory) != 0; }
+            catch (FileNotFoundException) { return false; }
+            catch (DirectoryNotFoundException) { return false; }
+        }
+        var paths = CaptureInstallPaths(app, catalog.Entries);
+        if (paths.Length == 0) warnings.Add(L.T("CleanupScopeUnknown"));
+        foreach (var path in paths) CheckScope(() =>
+        {
+            if (!ExistingDirectory(path)) return;
+            CleanupBoundary.InspectTree(path, token); results.Add(new("folder", path, "Operation66"));
+        });
         var publisher = app.Publisher.Trim(); var name = app.Name.Trim();
-        if (!SafeSegment(publisher) || !SafeSegment(name) || publisher.Equals(name, StringComparison.OrdinalIgnoreCase)) throw new IOException(L.T("CleanupRegistryScopeUnknown"));
-        foreach (var hive in new[] { RegistryHive.CurrentUser, RegistryHive.LocalMachine })
-            foreach (var view in hive == RegistryHive.CurrentUser ? new[] { RegistryView.Registry64 } : new[] { RegistryView.Registry64, RegistryView.Registry32 })
-            {
-                var path = @"SOFTWARE\" + publisher + @"\" + name;
-                using var root = RegistryKey.OpenBaseKey(hive, view);
-                RegistryBoundary.NoLinks(hive, view, path);
-                using var key = root.OpenSubKey(path);
-                if (key == null) continue;
-                var location = key.GetValue("InstallLocation", null, RegistryValueOptions.DoNotExpandEnvironmentNames) as string;
-                if (location != null && CleanupBoundary.LocalPath(location) && CleanupBoundary.Normalize(location).Equals(CleanupBoundary.Normalize(app.Metadata.Location), StringComparison.OrdinalIgnoreCase))
-                    results.Add(new("registry", path, "Operation67", hive, view));
-            }
-        foreach (var data in CaptureDataPaths(app).Where(path => SafeLinkedData(app, path)))
+        if (!SafeSegment(publisher) || !SafeSegment(name) || publisher.Equals(name, StringComparison.OrdinalIgnoreCase)) warnings.Add(L.T("CleanupRegistryScopeUnknown"));
+        else if (paths.Length > 0)
+            foreach (var hive in new[] { RegistryHive.CurrentUser, RegistryHive.LocalMachine })
+                foreach (var view in hive == RegistryHive.CurrentUser ? new[] { RegistryView.Registry64 } : new[] { RegistryView.Registry64, RegistryView.Registry32 })
+                    CheckScope(() =>
+                    {
+                        var path = @"SOFTWARE\" + publisher + @"\" + name;
+                        using var root = RegistryKey.OpenBaseKey(hive, view); RegistryBoundary.NoLinks(hive, view, path);
+                        using var key = root.OpenSubKey(path); if (key == null) return;
+                        var location = key.GetValue("InstallLocation", null, RegistryValueOptions.DoNotExpandEnvironmentNames) as string;
+                        if (location != null && CleanupBoundary.LocalPath(location) && paths.Contains(CleanupBoundary.Normalize(location), StringComparer.OrdinalIgnoreCase))
+                            results.Add(new("registry", path, "Operation67", hive, view));
+                        else warnings.Add(L.T("CleanupRegistryScopeUnknown") + ": " + hive + @"\" + path);
+                    });
+        var linked = new List<string>(app.LinkedDataPaths);
+        // Missing InstallLocation must not suppress already captured data paths or other scoped checks.
+        foreach (var path in paths) CheckScope(() => linked.AddRange(CaptureDataPaths(app with { Metadata = app.Metadata with { Location = path } })));
+        foreach (var data in linked.Distinct(StringComparer.OrdinalIgnoreCase).Where(path => SafeLinkedData(app, path))) CheckScope(() =>
         {
-            if (!Directory.Exists(data) || catalog.Entries.Any(other => !other.Sources.Intersect(app.Sources).Any() && other.Metadata is { } m && CleanupBoundary.LocalPath(m.Location) && CleanupBoundary.Overlap(m.Location, data))) continue;
+            if (!ExistingDirectory(data)) return;
+            if (catalog.Entries.Any(other => !other.Sources.Intersect(app.Sources).Any() && other.Metadata is { } m && CleanupBoundary.LocalPath(m.Location) && CleanupBoundary.Overlap(m.Location, data)))
+            { warnings.Add(L.T("CleanupScopeUnknown") + ": " + data); return; }
             CleanupBoundary.InspectTree(data, token); results.Add(new("folder", data, "LinkedUserData"));
-        }
-        return results.Distinct().ToList();
+        });
+        return new(results.Distinct().ToList(), warnings.Count == 0 ? null : string.Join("\n", warnings.Distinct()), checkedScopes);
     }
     private static bool SafeSegment(string value) => value.Length >= 3 && value.IndexOfAny(['\\', '/', '"', '\r', '\n']) < 0 && !new[] { "Microsoft", "Windows", "Classes" }.Contains(value, StringComparer.OrdinalIgnoreCase);
 

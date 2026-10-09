@@ -38,6 +38,8 @@ internal sealed partial class MainWindow : Form
     private readonly CatalogResult?[] _catalogs = new CatalogResult?[2];
     private readonly Task<CatalogResult>?[] _pending = new Task<CatalogResult>?[2];
     private List<AppEntry> _visible = [];
+    private List<ProgramRow> _rows = [];
+    private readonly HashSet<string> _expandedGroups = new(Program.Settings.ExpandedGroups);
     private int _tab;
     private int _sortColumn;
     private bool _descending;
@@ -247,28 +249,18 @@ internal sealed partial class MainWindow : Form
         });
         _grid.CellValueNeeded += (_, e) =>
         {
-            if (e.RowIndex < 0 || e.RowIndex >= _visible.Count) return;
-            var row = _visible[e.RowIndex];
-            e.Value = e.ColumnIndex switch
-            {
-                0 => row.Name,
-                1 => UiText.Size(row.SizeBytes),
+            if (e.RowIndex < 0 || e.RowIndex >= _rows.Count) return;
+            var view = _rows[e.RowIndex];
+            if (view.App is not { } row) { e.Value = e.ColumnIndex == 0 ? view.Title : ""; return; }
+            e.Value = e.ColumnIndex switch { 0 => row.Name, 1 => UiText.Size(row.SizeBytes),
                 2 => row.Installed?.ToString("dd.MM.yyyy") ?? UiText.Empty,
-                3 => string.IsNullOrWhiteSpace(row.Version) ? UiText.Empty : row.Version,
-                4 => StatusName(DisplayState(ResultFor(row))),
-                _ => ResultFor(row)?.Latest is { Length: > 0 } latest ? latest : UiText.Empty
-            };
-        };
-        _grid.CellToolTipTextNeeded += (_, e) =>
-        {
-            if (e.RowIndex < 0 || e.RowIndex >= _visible.Count) return;
-            var row = _visible[e.RowIndex];
-            e.ToolTipText = e.ColumnIndex is 4 or 5 ? VersionTooltip(row) : row.Name + "\n" + row.Publisher + "\n" + row.Version + "\n" + (_grid[e.ColumnIndex, e.RowIndex].Value?.ToString() ?? "");
+                _ => string.IsNullOrWhiteSpace(row.Version) ? UiText.Empty : row.Version };
         };
         _grid.CellMouseEnter += (_, e) =>
         {
-            if (e.RowIndex < 0 || e.RowIndex >= _visible.Count) return;
-            var row = _visible[e.RowIndex]; _tips.SetToolTip(_grid, e.ColumnIndex is 4 or 5 ? VersionTooltip(row) : row.Name + "\n" + row.Publisher + "\n" + row.Version);
+            if (e.RowIndex < 0 || e.RowIndex >= _rows.Count) return;
+            var view = _rows[e.RowIndex];
+            _tips.SetToolTip(_grid, view.App is { } app ? ProgramGroups.Detail(app) : view.Title);
         };
         _grid.ColumnHeaderMouseClick += (_, e) =>
         {
@@ -277,7 +269,18 @@ internal sealed partial class MainWindow : Form
             ApplyView(false);
         };
         _grid.CellPainting += PaintCell;
-        _grid.CellClick += (_, e) => { if (e.ColumnIndex is 4 or 5 && e.RowIndex >= 0 && e.RowIndex < _visible.Count) ShowVersion(_visible[e.RowIndex]); };
+        _grid.CellMouseClick += (_, e) =>
+        {
+            if (e.Button == MouseButtons.Left && e.ColumnIndex == 0 && e.X < S(31) && e.RowIndex >= 0 && e.RowIndex < _rows.Count && _rows[e.RowIndex].IsGroup)
+                ToggleGroup(_rows[e.RowIndex]);
+        };
+        _grid.CellMouseDoubleClick += async (_, e) =>
+        {
+            if (e.Button != MouseButtons.Left || e.RowIndex < 0 || e.RowIndex >= _rows.Count) return;
+            var row = _rows[e.RowIndex]; var plus = e.ColumnIndex == 0 && e.X < S(31) && row.IsGroup;
+            if (row.IsGroup) { if (!plus) ToggleGroup(row); return; }
+            if (ProgramGroups.UninstallOnDoubleClick(row, plus)) await RunSelected(0);
+        };
         _grid.SelectionChanged += (_, _) => UpdateActionState();
         _grid.CellMouseDown += (_, e) =>
         {
@@ -410,19 +413,15 @@ internal sealed partial class MainWindow : Form
 
     private void ApplyView(bool preserveSelection = true)
     {
-        var selected = preserveSelection && _grid.SelectedRows.Count > 0 && _grid.CurrentRow?.Index is int n && n >= 0 && n < _visible.Count
-            ? _visible[n].Id : null;
-        _visible = CatalogView.Select(_catalogs[_tab]?.Entries ?? [], _search.Text, _sortColumn, _descending);
-        if (_sortColumn is 4 or 5)
-        {
-            Func<AppEntry, string> key = x => _sortColumn == 4 ? StatusName(DisplayState(ResultFor(x))) : ResultFor(x)?.Latest ?? "";
-            var comparer = Comparer<string>.Create((a, b) => _sortColumn == 5 ? ReleaseVersion.Compare(a, b) ?? StringComparer.CurrentCultureIgnoreCase.Compare(a, b) : StringComparer.CurrentCultureIgnoreCase.Compare(a, b));
-            _visible = (_descending ? _visible.OrderByDescending(key, comparer) : _visible.OrderBy(key, comparer)).ThenBy(x => x.Name).ToList();
-        }
-        _grid.RowCount = _visible.Count;
+        var selected = preserveSelection && _grid.CurrentRow?.Index is int n && n >= 0 && n < _rows.Count
+            ? _rows[n].Key : null;
+        var all = _catalogs[_tab]?.Entries ?? [];
+        _visible = CatalogView.Select(all, _search.Text, _sortColumn, _descending);
+        _rows = ProgramGroups.Build(all, _search.Text, _sortColumn, _descending, _expandedGroups);
+        _grid.RowCount = _rows.Count;
         for (var i = 0; i < 4; i++) _grid.Columns[i].HeaderCell.SortGlyphDirection = i == _sortColumn
             ? _descending ? SortOrder.Descending : SortOrder.Ascending : SortOrder.None;
-        var index = selected == null ? -1 : _visible.FindIndex(x => x.Id == selected);
+        var index = selected == null ? -1 : _rows.FindIndex(x => x.Key == selected);
         if (index >= 0) _grid.CurrentCell = _grid[0, index];
         else
         {
@@ -435,9 +434,16 @@ internal sealed partial class MainWindow : Form
         Invalidate();
     }
 
+    private void ToggleGroup(ProgramRow row)
+    {
+        if (row.Group == null) return;
+        if (!_expandedGroups.Remove(row.Group)) _expandedGroups.Add(row.Group);
+        Program.Settings.ExpandedGroups = _expandedGroups.ToArray(); SavePreferences(); ApplyView();
+    }
+
     private void PaintCell(object? sender, DataGridViewCellPaintingEventArgs e)
     {
-        if (e.RowIndex < 0 || e.RowIndex >= _visible.Count || e.ColumnIndex is not (0 or 4))
+        if (e.RowIndex < 0 || e.RowIndex >= _rows.Count || e.ColumnIndex != 0)
         {
             e.Paint(e.ClipBounds, e.PaintParts & ~DataGridViewPaintParts.Border & ~DataGridViewPaintParts.Focus);
             e.Handled = true;
@@ -448,25 +454,24 @@ internal sealed partial class MainWindow : Form
         var bounds = e.CellBounds;
         var graphicsState = g.Save();
         g.SetClip(Rectangle.Intersect(bounds, e.ClipBounds));
-        if (e.ColumnIndex == 4)
+        var view = _rows[e.RowIndex];
+        if (view.IsGroup)
         {
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            var state = DisplayState(ResultFor(_visible[e.RowIndex]));
-            StatusVisual.Draw(g, new Rectangle(bounds.X + S(4), bounds.Y + (bounds.Height - S(17)) / 2, S(17), S(17)), state);
-            TextRenderer.DrawText(g, StatusName(state), Font, new Rectangle(bounds.X + S(25), bounds.Y, Math.Max(0, bounds.Width - S(27)), bounds.Height), GlassTeal.Text, TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter);
-
+            var square = new Rectangle(bounds.X + S(10), bounds.Y + (bounds.Height - S(12)) / 2, S(12), S(12));
+            using var pen = new Pen(GlassTeal.Accent, Math.Max(1, S(1)));
+            g.DrawRectangle(pen, square); g.DrawLine(pen, square.Left + S(3), square.Top + square.Height/2, square.Right - S(3), square.Top + square.Height/2);
+            if (!view.Expanded) g.DrawLine(pen, square.Left + square.Width/2, square.Top + S(3), square.Left + square.Width/2, square.Bottom - S(3));
+            using var bold = new Font(Font, FontStyle.Bold);
+            TextRenderer.DrawText(g, view.Title, bold, new Rectangle(bounds.X + S(32), bounds.Y, Math.Max(0,bounds.Width-S(36)), bounds.Height), GlassTeal.Text,
+                TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.PreserveGraphicsClipping);
         }
-        else
+        else if (view.App is { } row)
         {
-            var row = _visible[e.RowIndex];
-            var iconBounds = new Rectangle(bounds.X + S(12), bounds.Y + (bounds.Height - S(21)) / 2, S(21), S(21));
+            var indent = view.IsChild ? S(18) : 0;
+            var iconBounds = new Rectangle(bounds.X + S(12) + indent, bounds.Y + (bounds.Height - S(21)) / 2, S(21), S(21));
             if (_icons.TryGetValue(row.Id, out var bitmap) && bitmap != null) g.DrawImage(bitmap, iconBounds);
-            else
-            {
-                g.DrawImage(_fallbackIcon, iconBounds);
-                if (_rowsPainted && _iconRequests.Add(row.Id)) _ = LoadIcon(row);
-            }
-            var text = new Rectangle(bounds.X + S(44), bounds.Y, bounds.Width - S(49), bounds.Height);
+            else { g.DrawImage(_fallbackIcon, iconBounds); if (_rowsPainted && _iconRequests.Add(row.Id)) _ = LoadIcon(row); }
+            var text = new Rectangle(bounds.X + S(44) + indent, bounds.Y, Math.Max(0,bounds.Width-S(49)-indent), bounds.Height);
             TextRenderer.DrawText(g, row.Name, Font, text, GlassTeal.Text,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix | TextFormatFlags.PreserveGraphicsClipping);
         }
@@ -485,7 +490,7 @@ internal sealed partial class MainWindow : Form
             finally { _iconSlots.Release(); }
             if (_lifetime.IsCancellationRequested || generation != _iconGeneration) { bitmap?.Dispose(); return; }
             _icons[row.Id] = bitmap;
-            var index = _visible.FindIndex(x => x.Id == row.Id);
+            var index = _rows.FindIndex(x => x.App?.Id == row.Id);
             if (index >= 0) _grid.InvalidateCell(0, index);
         }
         catch (OperationCanceledException) { }

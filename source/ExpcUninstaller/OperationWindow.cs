@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 
 namespace ExpcUninstaller;
 
@@ -6,10 +6,12 @@ internal sealed class OperationServices
 {
     public Func<AppEntry, CancellationToken, Task<OperationResult>> Uninstall { get; init; } = ProductActions.Uninstall;
     public Func<AppEntry, List<JunkItem>> Find { get; init; } = app => BcuTargetedJunkAdapter.Find(app);
+    public Func<AppEntry, CancellationToken, TargetedScan>? Scan { get; init; }
     public Func<AppEntry, CancellationToken, List<JunkItem>>? FindCancellable { get; init; }
     public Func<AppEntry, Task> RemoveRecord { get; init; } = RegistryBackup.RemoveRecord;
     public Func<AppEntry, CleanupEntry, Task> DeleteEntry { get; init; } = CleanupPlan.Delete;
 }
+internal sealed class LeftoverTree : TreeView { internal void RecreateNativeHandle() => RecreateHandle(); }
 internal enum OperationStage { Confirm, Running, Leftovers, ConfirmCleanup, Finished }
 
 // This form is never used to start or wait for a normal uninstall.
@@ -24,7 +26,7 @@ internal sealed class OperationWindow : Form
     internal Action<OperationActivity, string>? Progress;
     private readonly Label _status = new() { Dock = DockStyle.Top, Height = 78, Padding = new Padding(8), AutoEllipsis = true };
     private readonly TextBox _journal = new() { Dock = DockStyle.Bottom, Height = 125, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Visible = false };
-    private readonly TreeView _tree = new() { Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, ShowNodeToolTips = true, HideSelection = false };
+    private readonly LeftoverTree _tree = new() { Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, ShowNodeToolTips = true, HideSelection = false };
     private readonly Button _primary = new ThemedButton() { AutoSize = true };
     private readonly Button _secondary = new ThemedButton() { AutoSize = true };
     private readonly HashSet<CleanupEntry> _selected = [];
@@ -32,19 +34,21 @@ internal sealed class OperationWindow : Form
     private List<CleanupEntry> _approved = [];
     private readonly Image? _image;
     private ImageList? _states;
+    private List<Bitmap> _stateBitmaps = [];
     internal OperationStage Stage { get; private set; } = OperationStage.Confirm;
     internal bool Running => Stage == OperationStage.Running;
     internal string Status => _status.Text;
-    internal TreeView Tree => _tree;
+    internal LeftoverTree Tree => _tree;
 
     public OperationWindow(AppEntry app, int action, Func<Task> refresh, Image? image = null, OperationServices? services = null, List<CleanupEntry>? initial = null, CleanupCheck? check = null)
     {
         if (action is < 1 or > 3) throw new ArgumentOutOfRangeException(nameof(action), "Normal uninstall must not open OperationWindow");
-        _app = app; _action = action; _refresh = refresh; _services = services ?? new() { FindCancellable = (app, token) => BcuTargetedJunkAdapter.Find(app, token) };
+        _app = app; _action = action; _refresh = refresh; _services = services ?? new() { Scan = (app, token) => BcuTargetedJunkAdapter.Scan(app, token) };
         Text = L.T("Operation19") + app.Name; ClientSize = new Size(720, 490); MinimumSize = new Size(540, 340);
         AutoScaleMode = AutoScaleMode.Dpi; Font = new Font("Segoe UI", 10.5f); StartPosition = FormStartPosition.Manual;
         TopMost = false; MaximizeBox = false;
-        _image = image == null ? null : (Image)image.Clone();
+        try { _image = image == null ? null : new Bitmap(image); }
+        catch (Exception ex) when (ex is ArgumentException or ObjectDisposedException or System.Runtime.InteropServices.ExternalException) { _image = null; }
         var header = new Panel { Dock = DockStyle.Top, Height = 52, Padding = new Padding(8) };
         header.Controls.Add(_activity);
         header.Controls.Add(new Label { Text = app.Name, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true });
@@ -115,19 +119,28 @@ internal sealed class OperationWindow : Form
         MinimumSize = new Size(Math.Min(work.Width, 540 * owner.DeviceDpi / 96), Math.Min(work.Height, 340 * owner.DeviceDpi / 96));
     }
     protected override void OnDpiChanged(DpiChangedEventArgs e) { base.OnDpiChanged(e); BuildStateImages(); }
-    private void BuildStateImages()
+    protected override void OnBackColorChanged(EventArgs e) { base.OnBackColorChanged(e); if (_states != null && !_tree.IsDisposed) BuildStateImages(); }
+    private void BuildStateImages() => RebuildStateImages(DeviceDpi);
+    internal void RebuildStateImages(int dpi)
     {
-        var states = new ImageList { ImageSize = new Size(Math.Max(16, 18 * DeviceDpi / 96), Math.Max(16, 18 * DeviceDpi / 96)), ColorDepth = ColorDepth.Depth32Bit };
+        var states = new ImageList { ImageSize = new Size(Math.Max(16, 18 * dpi / 96), Math.Max(16, 18 * dpi / 96)), ColorDepth = ColorDepth.Depth32Bit };
+        var bitmaps = new List<Bitmap>();
         for (var i = 0; i < 3; i++)
         {
-            using var image = new Bitmap(states.ImageSize.Width, states.ImageSize.Height);
+            var image = new Bitmap(states.ImageSize.Width, states.ImageSize.Height);
             using var g = Graphics.FromImage(image); g.Clear(GlassTeal.Background);
             var box = new Rectangle(1, 1, image.Width - 2, image.Height - 2);
             ControlPaint.DrawCheckBox(g, box, i == 0 ? ButtonState.Normal : ButtonState.Checked);
             if (i == 2) { using var b = new SolidBrush(GlassTeal.Surface); g.FillRectangle(b, Rectangle.Inflate(box, -3, -3)); using var pen = new Pen(GlassTeal.Heading, 2); g.DrawLine(pen, 4, image.Height / 2, image.Width - 4, image.Height / 2); }
-            states.Images.Add(image);
+            states.Images.Add(image); bitmaps.Add(image);
         }
-        _tree.StateImageList = states; _states?.Dispose(); _states = states;
+        // StateImageList rebuilds native nodes. Suppress custom drawing until node handles are remapped.
+        _tree.BeginUpdate();
+        try { _tree.StateImageList = states; }
+        finally { _tree.EndUpdate(); }
+        _states?.Dispose();
+        foreach (var old in _stateBitmaps) old.Dispose();
+        _states = states; _stateBitmaps = bitmaps;
     }
     private static IEnumerable<TreeNode> Nodes(TreeNode node) => new[] { node }.Concat(node.Nodes.Cast<TreeNode>().SelectMany(Nodes));
     private void Populate(List<CleanupEntry> entries)
@@ -202,24 +215,43 @@ internal sealed class OperationWindow : Form
         else Close();
     }
     private bool _canShowSuccess = true;
+    private string? _scopeWarning;
     internal OperationActivity Activity => _activity.Activity;
     internal async Task Search(string? warning = null, bool removalConfirmed = true)
     {
         if (Running) return;
-        _canShowSuccess = removalConfirmed;
+        _canShowSuccess = removalConfirmed; _scopeWarning = null;
         using var work = new CancellationTokenSource(); _work = work;
         Stage = OperationStage.Running; _activity.Set(OperationActivity.Busy); UpdateButtons(); SetStatus(L.T("Operation13"));
         try
         {
-            var entries = await Task.Run(() => CleanupPlan.Expand(_services.FindCancellable?.Invoke(_app, work.Token) ?? _services.Find(_app), work.Token));
-            work.Token.ThrowIfCancellationRequested();
-            Populate(entries);
-            _activity.Set(_canShowSuccess && warning == null && entries.Count == 0 ? OperationActivity.Success : OperationActivity.Idle);
-            SetStatus(warning == null ? Status : L.T("CleanupCheckError") + ": " + warning);
-            if (warning != null) { _activity.Set(OperationActivity.Error); Stage = OperationStage.Finished; }
+            var result = await Task.Run(() =>
+            {
+                var scan = _services.Scan?.Invoke(_app, work.Token)
+                    ?? new TargetedScan(_services.FindCancellable?.Invoke(_app, work.Token) ?? _services.Find(_app), null, 1);
+                var entries = new List<CleanupEntry>(); var issues = new List<string>();
+                if (warning != null) issues.Add(warning); if (scan.Warning != null) issues.Add(scan.Warning);
+                foreach (var root in scan.Items)
+                {
+                    work.Token.ThrowIfCancellationRequested();
+                    try { entries.AddRange(CleanupPlan.Expand([root], work.Token)); }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex) { issues.Add(root.Path + ": " + ex.Message); }
+                }
+                return (entries, warning: issues.Count == 0 ? null : string.Join("\n", issues), scan.CheckedScopes);
+            });
+            work.Token.ThrowIfCancellationRequested(); Populate(result.entries);
+            if (result.warning != null)
+            {
+                _scopeWarning = result.warning; _canShowSuccess = false;
+                _activity.Set(OperationActivity.Error);
+                if (result.CheckedScopes == 0 && result.entries.Count == 0) Stage = OperationStage.Finished;
+                SetStatus(L.T(result.CheckedScopes == 0 && result.entries.Count == 0 ? "CleanupFailed" : "CleanupPartial") + ": " + result.warning);
+            }
+            else { _activity.Set(_canShowSuccess && result.entries.Count == 0 ? OperationActivity.Success : OperationActivity.Idle); SetStatus(Status); }
         }
         catch (OperationCanceledException) { Stage = OperationStage.Finished; _activity.Set(OperationActivity.Idle); SetStatus(L.T("SearchCancelled")); }
-        catch (Exception ex) { Stage = OperationStage.Finished; _activity.Set(OperationActivity.Error); SetStatus(L.T("CleanupCheckError") + ": " + ex.Message); }
+        catch (Exception ex) { Stage = OperationStage.Finished; _activity.Set(OperationActivity.Error); SetStatus(L.T("CleanupFailed") + ": " + ex.Message); }
         finally { _work = null; UpdateButtons(); Progress?.Invoke(_activity.Activity, Status); }
     }
     internal async Task Advance()
@@ -257,9 +289,16 @@ internal sealed class OperationWindow : Form
         {
             var completed = Stage; Stage = OperationStage.Running;
             try { await _refresh(); } catch (Exception ex) { SetStatus(L.T("OperationRefreshError") + ": " + ex.Message); }
-            Stage = completed; _work = null; UpdateButtons(); Progress?.Invoke(_activity.Activity, Status);
+            Stage = completed; _work = null;
+            if (_scopeWarning != null) SetStatus(Status + "\n" + L.T("CleanupPartial") + ": " + _scopeWarning);
+            UpdateButtons(); Progress?.Invoke(_activity.Activity, Status);
         }
     }
     protected override void Dispose(bool disposing)
-    { if (disposing) { _work?.Cancel(); _states?.Dispose(); _image?.Dispose(); } base.Dispose(disposing); }
+    {
+        if (disposing) _work?.Cancel();
+        // Destroy TreeView's native handle before its state-image list and source bitmaps.
+        base.Dispose(disposing);
+        if (disposing) { _states?.Dispose(); foreach (var bitmap in _stateBitmaps) bitmap.Dispose(); _image?.Dispose(); }
+    }
 }

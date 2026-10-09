@@ -9,6 +9,7 @@ internal sealed class Preferences
 {
     public string Language { get; set; } = "";
     public string Theme { get; set; } = "Glass Teal";
+    public string[] ExpandedGroups { get; set; } = [];
     public int[] ColumnWidths { get; set; } = [];
     public SavedWindow? Window { get; set; }
 }

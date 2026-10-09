@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using Microsoft.Win32;
 
 namespace ExpcUninstaller;
@@ -28,10 +28,11 @@ internal sealed partial class MainWindow
             await StartLeftoverSearch(app, null, false);
         };
     }
-    private AppEntry? SelectedEntry => _grid.CurrentRow?.Index is int index && index >= 0 && index < _visible.Count && _grid.SelectedRows.Count > 0 ? _visible[index] : null;
+    private AppEntry? SelectedEntry => _grid.CurrentRow?.Index is int index && index >= 0 && index < _rows.Count && _grid.SelectedRows.Count > 0 ? _rows[index].App : null;
     private ToolStripMenuItem ActionItem(int action)
     {
-        var item = new ToolStripMenuItem(UiText.ContextActions[action]);
+        var item = new ToolStripMenuItem(action == 0 ? L.T("StandardUninstall") : UiText.ContextActions[action]);
+        if (action == 0) { var bold = new Font(Font, FontStyle.Bold); item.Font = bold; item.Disposed += (_, _) => bold.Dispose(); }
         item.Image = MenuGlyph(action switch { 0 => Glyph.Delete, 1 => Glyph.ForceDelete, 2 => Glyph.Junk, 3 => Glyph.RemoveEntry,
             4 => Glyph.Folder, 5 => Glyph.Registry, 6 => Glyph.Website, 7 => Glyph.Search, 8 => Glyph.Source, _ => Glyph.Update });
         item.ShortcutKeys = action switch { 0 => Keys.Control | Keys.U, 1 => Keys.Control | Keys.Shift | Keys.U, 2 => Keys.Control | Keys.J, 4 => Keys.Control | Keys.O, 5 => Keys.Control | Keys.R, 9 => Keys.Control | Keys.F5, _ => Keys.None };

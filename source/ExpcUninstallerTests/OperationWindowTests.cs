@@ -198,7 +198,7 @@ public sealed class OperationWindowTests
     {
         var fixture = Environment.GetEnvironmentVariable("EXPC_OPERATION_FIXTURE");
         if (string.IsNullOrEmpty(fixture)) { Assert.Inconclusive("Set EXPC_OPERATION_FIXTURE"); return; }
-        var root = FixtureDirectory(); var shown = 0; var scanned = 0; var launched = 0; var done = false;
+        var root = FixtureDirectory(); var shown = 0; var scanned = 0; var launched = 0; var done = false; var statuses = new List<string>();
         try
         {
             await new StandardRemoval().Run(App, new()
@@ -213,8 +213,8 @@ public sealed class OperationWindowTests
                     done = true; return ProductActions.Completion(exit, true, true); // registration fact is synthetic
                 },
                 Find = _ => { Assert.IsTrue(done); scanned++; return [new("folder",root,"Operation66")]; }
-            }, _ => { }, () => Task.CompletedTask, _ => { Assert.IsTrue(done); shown++; }, _ => true);
-            Assert.AreEqual(1, launched); Assert.AreEqual(exit == 0 ? 1 : 0, shown); Assert.AreEqual(shown, scanned);
+            }, statuses.Add, () => Task.CompletedTask, _ => { Assert.IsTrue(done); shown++; }, _ => true);
+            Assert.AreEqual(1, launched); Assert.AreEqual(exit == 0 ? 1 : 0, shown, string.Join("\n", statuses)); Assert.AreEqual(shown, scanned);
         }
         finally { Directory.Delete(root, false); }
     }

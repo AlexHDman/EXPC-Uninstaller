@@ -1,4 +1,4 @@
-param([Parameter(Mandatory)][string]$OutputRoot)
+﻿param([Parameter(Mandatory)][string]$OutputRoot, [switch]$CompactOnly)
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath("$PSScriptRoot\..")
 $out=[IO.Path]::GetFullPath($OutputRoot)
@@ -13,7 +13,7 @@ function Run([string]$exe,[string[]]$arguments,[string]$name,[int]$seconds=240) 
 }
 & "$PSScriptRoot\Build-ExpcNative.ps1"
 $vs=& "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products '*' -property installationPath
-foreach ($variant in @('A','B')) {
+foreach ($variant in $(if($CompactOnly){@('B')}else{@('A','B')})) {
  $self=if($variant -eq 'A'){'true'}else{'false'}
  $pub=Join-Path $out "$variant-publish"
  $base=@('-c','Release','-r','win-x64','--self-contained',$self,'-p:Platform=x64','-p:PublishTrimmed=false','-p:RollForward=LatestPatch','-p:DebugType=None','-p:DebugSymbols=false','-p:RestoreSources=https://api.nuget.org/v3/index.json','--nologo')
@@ -36,7 +36,7 @@ foreach ($variant in @('A','B')) {
 @call "$vs\VC\Auxiliary\Build\vcvars64.bat" >nul
 @rc /nologo /fo "$pack\payload.res" "$pack\payload.rc"
 @if errorlevel 1 exit /b %errorlevel%
-@cl /nologo /MT /O2 /EHsc /std:c++20 /utf-8 /DUNICODE /D_UNICODE $define /I"$pack" "$root\tools\Expc.PortableLauncher\launcher.cpp" /Fo"$pack\launcher.obj" /link /SUBSYSTEM:WINDOWS /DYNAMICBASE /NXCOMPAT /OUT:"$out\$name" "$pack\payload.res" bcrypt.lib cabinet.lib shell32.lib ole32.lib advapi32.lib user32.lib
+@cl /nologo /MT /O2 /EHsc /std:c++20 /utf-8 /DUNICODE /D_UNICODE $define /I"$pack" "$root\tools\Expc.PortableLauncher\launcher.cpp" /Fo"$pack\launcher.obj" /link /MANIFEST:EMBED /MANIFESTINPUT:"$root\tools\Expc.PortableLauncher\launcher.manifest" /SUBSYSTEM:WINDOWS /DYNAMICBASE /NXCOMPAT /OUT:"$out\$name" "$pack\payload.res" bcrypt.lib cabinet.lib shell32.lib ole32.lib advapi32.lib user32.lib comctl32.lib gdi32.lib
 @exit /b %errorlevel%
 "@
  [IO.File]::WriteAllText("$pack\compile.cmd",$batch,[Text.Encoding]::Default)
