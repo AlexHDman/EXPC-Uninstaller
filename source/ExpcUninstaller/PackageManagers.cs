@@ -265,6 +265,7 @@ internal sealed class PackageManagers
         if (!package.IdentityConfirmed || Excluded(app, package)) return State(VersionState.Manual, "ManagerIdentityReview", package);
         if (package.Channel.Length > 0 && !package.Channel.Equals("stable", StringComparison.OrdinalIgnoreCase)) return State(VersionState.Manual, "BranchMismatch", package);
         if (rule?.Branch.Length > 0 && (!app.Version.StartsWith(rule.Branch + ".") || !package.Latest.StartsWith(rule.Branch + "."))) return State(VersionState.Manual, "BranchMismatch", package);
+        if (ReleaseVersion.DifferentChannel(app.Version, package.Latest)) return State(VersionState.Manual, "ChannelMismatch", package);
         var comparison = ReleaseVersion.Compare(app.Version, package.Latest);
         if (comparison == null || comparison > 0) return State(VersionState.Unknown, comparison == null ? "AmbiguousVersion" : "InstalledNewer", package);
         if (comparison == 0) return State(VersionState.Current, "ComparedBranch", package);

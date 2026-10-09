@@ -21,6 +21,7 @@
     <EmbeddedResource Include="..\..\assets\icon.ico" LogicalName="Expc.Icon.ico" />
     <EmbeddedResource Include="VersionRules.json" LogicalName="Expc.VersionRules.json" />
     <EmbeddedResource Include="Locales\ru.json;Locales\en.json;Locales\updates.json" LogicalName="Expc.Locale.%(Filename).json" />
+    <Content Include="..\..\artifacts\native\Expc.Native.dll" Link="Expc.Native.dll" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\Licence.txt;..\..\NOTICE" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\scripts\portable-desktop.ini" Link="desktop.ini" CopyToOutputDirectory="PreserveNewest" />
     <InternalsVisibleTo Include="ExpcUninstallerTests" />

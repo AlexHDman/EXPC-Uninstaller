@@ -8,7 +8,7 @@ internal sealed class StandardRemoval
 {
     private int _running;
     public async Task Run(AppEntry app, OperationServices services, Action<string> status, Func<Task> refresh,
-        Action<CleanupCheck> leftovers, Func<AppEntry, bool> confirm, Action<AppEntry>? unconfirmed = null)
+        Action<CleanupCheck> leftovers, Func<AppEntry, bool> confirm, Action<AppEntry>? unconfirmed = null, Func<AppEntry, string?, Task>? search = null)
     {
         if (Interlocked.Exchange(ref _running, 1) != 0) return;
         // Capture paths, command metadata and registration identities before external uninstall or list refresh.
@@ -41,6 +41,7 @@ internal sealed class StandardRemoval
             if (result.Reboot) { Show(new([], L.T("CleanupDeferred"))); return; }
             if (snapshot.Store) { Show(new([], L.T("CleanupStoreNotice"))); return; }
             status(L.T("Operation13")); Log("leftovers-start", new { snapshot.Sources, location = snapshot.Metadata?.Location });
+            if (search != null) { await search(snapshot, snapshotWarning ?? refreshWarning); return; }
             CleanupCheck check;
             try { check = new(await Task.Run(() => CleanupPlan.Expand(services.Find(snapshot))), Notice: refreshWarning); }
             catch (Exception ex) { check = new([], L.T("CleanupCheckError") + ": " + ex.Message, refreshWarning); }

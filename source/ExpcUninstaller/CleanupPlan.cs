@@ -16,7 +16,7 @@ internal static class CleanupPlan
             .Any(word => part.Equals(word, StringComparison.OrdinalIgnoreCase) || part.StartsWith(word + ".", StringComparison.OrdinalIgnoreCase)))) return "CleanupUserData";
         return "CleanupFiles";
     }
-    public static List<CleanupEntry> Expand(IEnumerable<JunkItem> roots)
+    public static List<CleanupEntry> Expand(IEnumerable<JunkItem> roots, CancellationToken token = default)
     {
         var result = new List<CleanupEntry>();
         foreach (var root in roots.Distinct())
@@ -29,6 +29,7 @@ internal static class CleanupPlan
                 var pending = new Stack<string>(); pending.Push(root.Path);
                 while (pending.TryPop(out var path))
                 {
+                    token.ThrowIfCancellationRequested();
                     if (result.Count > 100000) throw new IOException(L.T("Operation63"));
                     RegistryBoundary.NoLinks(root.Hive, root.View, path);
                     using var key = hive.OpenSubKey(path); if (key == null) throw new IOException(L.T("Operation27"));
@@ -42,7 +43,7 @@ internal static class CleanupPlan
                 continue;
             }
             if (root.Kind != "folder") continue;
-            foreach (var path in CleanupBoundary.InspectTree(root.Path).Prepend(root.Path))
+            foreach (var path in CleanupBoundary.InspectTree(root.Path, token).Prepend(root.Path))
                 result.Add(new(root, path, System.IO.Directory.Exists(path), Category(path, false)));
         }
         return result.Distinct().ToList();
@@ -86,7 +87,7 @@ internal static class CleanupPlan
         if (entry.Registry || !CleanupBoundary.Within(entry.Path, entry.Root.Path)) throw new IOException(L.T("Operation27"));
         CleanupBoundary.NoReparse(entry.Path);
         // Never recursively delete a parent. Unchecked or newly created descendants survive even a stale plan.
-        if (entry.Directory) System.IO.Directory.Delete(entry.Path, false);
-        else File.Delete(entry.Path);
+        if (entry.Directory && System.IO.Directory.EnumerateFileSystemEntries(entry.Path).Any()) throw new IOException(L.T("Operation27"));
+        RecycleFiles.Move(entry.Path);
     }
 }

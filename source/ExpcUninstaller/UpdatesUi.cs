@@ -89,12 +89,12 @@ internal sealed class UpdatesWindow : Form
             EditMode = DataGridViewEditMode.EditProgrammatically, BorderStyle = BorderStyle.None, CellBorderStyle = DataGridViewCellBorderStyle.None,
             EnableHeadersVisualStyles = false, ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.None, AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill };
         grid.Columns.Add(new DataGridViewCheckBoxColumn { Width = 32, AutoSizeMode = DataGridViewAutoSizeColumnMode.None });
-        foreach (var key in new[] { "ProgramColumn", "VersionColumn", "NewColumn", "Source", "UpdateResult" })
+        foreach (var key in new[] { "ProgramColumn", "VersionColumn", "SourceVersion", "Source", "StatusColumn" })
             grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = L.T(key), ReadOnly = true });
         var log = new TextBox { Dock = DockStyle.Bottom, Height = 85, ReadOnly = true, Multiline = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None };
         var note = new Label { Dock = DockStyle.Bottom, Height = 48, Padding = new Padding(6) };
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, FlowDirection = FlowDirection.RightToLeft };
-        Button Add(string key) { var b = new Button { Text = L.T(key), AutoSize = true }; buttons.Controls.Add(b); return b; }
+        Button Add(string key) { var b = new ThemedButton { Text = L.T(key), AutoSize = true }; buttons.Controls.Add(b); return b; }
         var close = Add("Close"); var install = Add("InstallSelected"); var ignore = Add("IgnoreSelected"); var restore = Add("RestoreUpdates");
         var check = Add("RecheckUpdates"); var source = Add("SourceEditor"); var download = Add("DownloadPage");
         var showIgnored = new CheckBox { Text = L.T("ShowIgnored"), AutoSize = true }; buttons.Controls.Add(showIgnored);
@@ -135,9 +135,9 @@ internal sealed class UpdatesWindow : Form
                 var e = entries[i]; if (ignored.Contains(e.App) && !showIgnored.Checked) continue;
                 var reason = L.T(UpdatePolicy.Reason(e.App, e.Result));
                 var index = grid.Rows.Add(selected.Contains(UpdatePolicy.Identity(e.App)), e.App.Name, e.Result.Installed,
-                    e.Result.Latest.Length == 0 ? UiText.Empty : e.Result.Latest, e.Result.Source, L.T("Status" + e.Result.State) + " · " + reason);
+                    e.Result.Latest.Length == 0 ? UiText.Empty : e.Result.Latest, e.Result.Source, "");
                 var row = grid.Rows[index]; row.Tag = i; row.Cells[0].Tag = UpdatePolicy.Identity(e.App);
-                row.Cells[5].ToolTipText = reason + "\n" + L.T(e.Result.Compatibility) + "\n" + e.Result.Source;
+                row.Cells[5].ToolTipText = L.T("Status" + e.Result.State) + "\n" + reason + "\n" + L.T(e.Result.Compatibility) + "\n" + e.Result.Source;
                 if (currentId == Id(row)) grid.CurrentCell = row.Cells[1];
             }
             if (sort is > 0) grid.Sort(grid.Columns[sort.Value], direction == SortOrder.Descending ? System.ComponentModel.ListSortDirection.Descending : System.ComponentModel.ListSortDirection.Ascending);
@@ -156,8 +156,7 @@ internal sealed class UpdatesWindow : Form
         {
             if (e.ColumnIndex != 5 || e.RowIndex < 0) return;
             e.PaintBackground(e.ClipBounds, true); var r = e.CellBounds; var size = 16 * DeviceDpi / 96;
-            StatusVisual.Draw(e.Graphics!, new Rectangle(r.X + 3, r.Y + (r.Height - size) / 2, size, size), Entry(grid.Rows[e.RowIndex]).Result.State);
-            TextRenderer.DrawText(e.Graphics!, e.FormattedValue?.ToString(), Font, new Rectangle(r.X + size + 7, r.Y, r.Width - size - 7, r.Height), GlassTeal.Text, TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter); e.Handled = true;
+            StatusVisual.Draw(e.Graphics!, new Rectangle(r.X + (r.Width - size) / 2, r.Y + (r.Height - size) / 2, size, size), Entry(grid.Rows[e.RowIndex]).Result.State); e.Handled = true;
         };
         async Task Work(Func<Task> action)
         {
@@ -190,8 +189,8 @@ internal sealed class UpdatesWindow : Form
                     if (cancel) break;
                     var e = Entry(row);
                     var outcome = await apply(e.App, e.Result, new Progress<string>(text => log.Text = text));
-                    row.Cells[5].Value = outcome;
-                    row.Cells[5].ToolTipText = row.Cells[5].Value?.ToString(); selected.Remove(Id(row)); row.Cells[0].Value = false;
+                    log.Text = outcome;
+                    row.Cells[5].ToolTipText = outcome; selected.Remove(Id(row)); row.Cells[0].Value = false;
                     // The reviewed plan is consumed. Recheck is required before another installation.
                     var verified = new[] { "UpdateVerified", "UpdateVerifiedReboot", "UpdateVerifiedWithError" }.Any(key => outcome.StartsWith(L.T(key) + " (", StringComparison.Ordinal));
                     entries[(int)row.Tag!] = (e.App, e.Result with { State = verified ? VersionState.Unchecked : VersionState.Error, Package = null, Reason = "UpdatePlanChanged" });

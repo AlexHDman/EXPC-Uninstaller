@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Microsoft.Win32;
 
 namespace ExpcUninstaller;
@@ -11,12 +11,13 @@ internal sealed partial class MainWindow
     private OperationWindow? _operationDialog;
     private readonly StandardRemoval _standardRemoval = new();
     private string? _operationStatus;
+    private readonly ActivityIndicator _activity = new();
     private AppEntry? _unconfirmedRemoval;
     private readonly LinkLabel _retryLeftovers = new() { AutoSize = true, Visible = false };
     private void ConfigureLeftoverRetry()
     {
         _retryLeftovers.Text = L.T("RetryLeftovers"); _retryLeftovers.LinkColor = GlassTeal.Heading;
-        Controls.Add(_retryLeftovers);
+        Controls.Add(_retryLeftovers); Controls.Add(_activity);
         void Place() { _retryLeftovers.Location = new Point(12, ClientSize.Height - _retryLeftovers.Height - 5); _retryLeftovers.BringToFront(); }
         Resize += (_, _) => Place(); Place();
         _retryLeftovers.Click += async (_, _) =>
@@ -24,11 +25,7 @@ internal sealed partial class MainWindow
             if (_operationBusy || _unconfirmedRemoval is not { } app) return;
             if (!Confirm(L.F("ExternalFinished", app.Name))) return;
             if (ProductActions.HasKnownRunning(app)) { OperationStatus(L.T("KnownUninstallerRunning")); return; }
-            _operationBusy = true; UpdateActionState(); OperationStatus(L.T("Operation13"));
-            CleanupCheck result;
-            try { result = new(await Task.Run(() => CleanupPlan.Expand(BcuTargetedJunkAdapter.Find(app))), Snapshot: app); }
-            catch (Exception ex) { result = new([], L.T("CleanupCheckError") + ": " + ex.Message, Snapshot: app); }
-            OpenOperation(app, 2, result.Items, result);
+            await StartLeftoverSearch(app, null, false);
         };
     }
     private AppEntry? SelectedEntry => _grid.CurrentRow?.Index is int index && index >= 0 && index < _visible.Count && _grid.SelectedRows.Count > 0 ? _visible[index] : null;
@@ -87,10 +84,10 @@ internal sealed partial class MainWindow
         if (action == 0)
         {
             _retryLeftovers.Visible = false; _unconfirmedRemoval = null;
-            _operationBusy = true; UpdateActionState();
+            _operationBusy = true; _activity.Set(OperationActivity.Busy); UpdateActionState();
             try { await _standardRemoval.Run(app, new(), OperationStatus, () => RefreshAfter(app),
-                check => OpenOperation(check.Snapshot ?? app, 2, check.Items, check), selected => { using var dialog = new RemovalConfirmation(selected.Name); return dialog.Ask(this); }, pending => { _unconfirmedRemoval = pending; _retryLeftovers.Visible = true; }); }
-            finally { _operationBusy = _operationDialog is { IsDisposed: false }; UpdateActionState(); }
+                check => OpenOperation(check.Snapshot ?? app, 2, check.Items, check), selected => { using var dialog = new RemovalConfirmation(selected.Name); return dialog.Ask(this); }, pending => { _unconfirmedRemoval = pending; _retryLeftovers.Visible = true; _activity.Set(OperationActivity.Error); }, BeginLeftoverSearch); }
+            finally { _operationBusy = _operationDialog is { IsDisposed: false }; if (!_operationBusy) _activity.Set(OperationActivity.Idle); UpdateActionState(); }
             return;
         }
         if (action <= 3) { OpenOperation(app, action); return; }
@@ -134,7 +131,13 @@ internal sealed partial class MainWindow
         }
         finally { _operationBusy = false; UpdateActionState(); }
     }
-    private void OperationStatus(string text) { _operationStatus = text; _status = text; _tips.SetToolTip(this, text); Invalidate(); }
+    private void OperationStatus(string text) { _tips.SetToolTip(_activity, text); _operationStatus = text; _status = text; _tips.SetToolTip(this, text); Invalidate(); }
+    private Task BeginLeftoverSearch(AppEntry app, string? warning) => StartLeftoverSearch(app, warning, true);
+    private async Task StartLeftoverSearch(AppEntry app, string? warning, bool removalConfirmed)
+    {
+        OpenOperation(app, 2);
+        if (_operationDialog is { } dialog) await dialog.Search(warning, removalConfirmed);
+    }
     private void OpenOperation(AppEntry app, int action, List<CleanupEntry>? items = null, CleanupCheck? check = null)
     {
         if (_operationDialog is { IsDisposed: false }) return;
@@ -142,6 +145,7 @@ internal sealed partial class MainWindow
         var dialog = new OperationWindow(app, action, () => RefreshAfter(app), icon ?? _fallbackIcon, initial: items, check: check);
         _operationBusy = true;
         _operationDialog = dialog;
+        dialog.Progress = (state, text) => { _activity.Set(state); OperationStatus(text); };
         dialog.FormClosed += (_, _) =>
         {
             _operationDialog = null; _operationBusy = false; UpdateActionState(); dialog.Dispose();
@@ -155,8 +159,8 @@ internal sealed partial class MainWindow
         SavePlacement();
         if (e.CloseReason == CloseReason.UserClosing && !_exitRequested)
         { e.Cancel = true; SavePreferences(); Hide(); return; }
+        if (_operationBusy && e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; OperationStatus(L.T("OperationActive")); return; }
         _vault.Lock();
-        if (_operationBusy && e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; return; }
         _versionCancellation?.Cancel();
         SavePreferences();
         base.OnFormClosing(e);

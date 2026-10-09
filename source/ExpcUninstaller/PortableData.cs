@@ -15,7 +15,7 @@ internal sealed class Preferences
 
 internal static class PortableData
 {
-    public static string DirectoryPath { get; set; } = Path.Combine(AppContext.BaseDirectory, "local-data");
+    public static string DirectoryPath { get; set; } = Path.Combine(PortablePaths.Root, "local-data");
     public static string? ReadError { get; private set; }
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNameCaseInsensitive = true, RespectNullableAnnotations = true };
     public static T Load<T>(string name) where T : new()

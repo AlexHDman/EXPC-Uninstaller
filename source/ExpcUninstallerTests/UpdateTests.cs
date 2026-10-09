@@ -66,7 +66,7 @@ public sealed class UpdateTests
     [TestMethod] public void LowerOrUnrecognizedAvailableVersionIsNotCurrent()
     {
         foreach (var latest in new[] { "1.1", "unknown", "1.3-beta" })
-        { var value = new PackageManagers([Package with { Latest = latest }]).Evaluate(App, null, false); Assert.AreEqual(VersionState.Unknown, value.State); Assert.IsFalse(value.CanInstall); }
+        { var value = new PackageManagers([Package with { Latest = latest }]).Evaluate(App, null, false); Assert.AreEqual(latest.Contains("beta") ? VersionState.Manual : VersionState.Unknown, value.State); Assert.IsFalse(value.CanInstall); }
     }
     [TestMethod] public void CurrentManualPinnedErrorAndUnconfirmedNeverGetRing()
     {

@@ -26,7 +26,7 @@ internal static class CleanupBoundary
         var protectedRoots = new[] { Environment.GetFolderPath(Environment.SpecialFolder.Windows),
             Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
             Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles), Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFilesX86),
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads"), @"C:\Apps", PortablePaths.Root, Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
             AppContext.BaseDirectory.TrimEnd('\\') };
         if (path.Split('\\').Length < 3 || protectedRoots.Where(x => x.Length > 0).Any(x => Within(x, path)) ||
@@ -65,15 +65,17 @@ internal static class CleanupBoundary
         for (var current = new DirectoryInfo(path); current != null; current = current.Parent)
             if ((current.Attributes & FileAttributes.ReparsePoint) != 0) throw new IOException(L.T("Operation62") + current.FullName);
     }
-    public static List<string> InspectTree(string path)
+    public static List<string> InspectTree(string path, CancellationToken token = default)
     {
         NoReparse(path);
         var result = new List<string>(); var pending = new Stack<string>(); pending.Push(path);
         while (pending.TryPop(out var directory))
         {
+            token.ThrowIfCancellationRequested();
             NoReparse(directory);
             foreach (var item in Directory.EnumerateFileSystemEntries(directory))
             {
+                token.ThrowIfCancellationRequested();
                 if (result.Count > 100000) throw new IOException(L.T("Operation63"));
                 var flags = File.GetAttributes(item);
                 if ((flags & FileAttributes.ReparsePoint) != 0) throw new IOException(L.T("Operation64"));
@@ -113,8 +115,9 @@ internal static class BcuTargetedJunkAdapter
         var leaf = Token(System.IO.Path.GetFileName(path.TrimEnd('\\')));
         return leaf.Length >= 3 && leaf != Token(app.Publisher) && (leaf == Token(name) || leaf == Token(app.Name));
     }
-    public static List<JunkItem> Find(AppEntry app)
+    public static List<JunkItem> Find(AppEntry app, CancellationToken token = default)
     {
+        token.ThrowIfCancellationRequested();
         if (app.Store || app.Protected || app.Metadata == null) return [];
         if (ProductIdentity.IsRegistered(app)) ProductIdentity.RequireUnchanged(app);
         var catalog = FastCatalog.ReadRegistry();
@@ -126,7 +129,7 @@ internal static class BcuTargetedJunkAdapter
             var path = CleanupBoundary.Normalize(app.Metadata.Location);
             if (Directory.Exists(path))
             {
-                CleanupBoundary.InspectTree(path);
+                CleanupBoundary.InspectTree(path, token);
                 results.Add(new("folder", path, "Operation66"));
             }
         }
@@ -149,7 +152,7 @@ internal static class BcuTargetedJunkAdapter
         foreach (var data in CaptureDataPaths(app).Where(path => SafeLinkedData(app, path)))
         {
             if (!Directory.Exists(data) || catalog.Entries.Any(other => !other.Sources.Intersect(app.Sources).Any() && other.Metadata is { } m && CleanupBoundary.LocalPath(m.Location) && CleanupBoundary.Overlap(m.Location, data))) continue;
-            CleanupBoundary.InspectTree(data); results.Add(new("folder", data, "LinkedUserData"));
+            CleanupBoundary.InspectTree(data, token); results.Add(new("folder", data, "LinkedUserData"));
         }
         return results.Distinct().ToList();
     }

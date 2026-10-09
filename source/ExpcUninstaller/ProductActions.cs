@@ -111,7 +111,7 @@ internal static class UninstallCommand
 internal sealed record OperationResult(string State, string Message, bool Removed = false, bool Reboot = false);
 internal static class OperationLog
 {
-    public static string DirectoryPath => System.IO.Path.Combine(AppContext.BaseDirectory, "local-data");
+    public static string DirectoryPath => System.IO.Path.Combine(PortablePaths.Root, "local-data");
     public static void Write(string operation, string target, string result)
     {
         Directory.CreateDirectory(DirectoryPath);

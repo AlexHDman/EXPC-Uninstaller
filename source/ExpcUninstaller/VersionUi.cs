@@ -121,7 +121,7 @@ internal sealed partial class MainWindow
         using var dialog = new DetailWindow(app.Name, content, rule?.Url);
         if (result?.Reason == "NoRule")
         {
-            var source = new Button { Text = L.T("SourceEditor"), Dock = DockStyle.Bottom, Height = 34 };
+            var source = new ThemedButton { Text = L.T("SourceEditor"), Dock = DockStyle.Bottom, Height = 34 };
             source.Click += (_, _) => { dialog.Close(); EditSource(app); }; dialog.Controls.Add(source); Theme.Apply(dialog);
         }
         dialog.ShowDialog(this);
@@ -164,7 +164,7 @@ internal sealed partial class MainWindow
     {
         L.Select(language); Program.Settings.Language = language; SavePreferences();
         _search.PlaceholderText = UiText.Search; _search.AccessibleName = UiText.Search;
-        for (var i = 0; i < 6; i++) _grid.Columns[i].HeaderText = UiText.Columns[i];
+        for (var i = 0; i < 4; i++) _grid.Columns[i].HeaderText = UiText.Columns[i];
         SizeColumns();
         string[] tips = [UiText.Delete, UiText.RefreshHint, L.T("CheckAllPrograms"), L.T(_vault.Unlocked ? "LockVault" : "UnlockVault"), UiText.Theme, UiText.Language, UiText.Programs, UiText.StoreHint];
         for (var i = 0; i < _actions.Count; i++) { _tips.SetToolTip(_actions[i], tips[i]); _actions[i].AccessibleName = tips[i]; }
@@ -205,15 +205,15 @@ internal sealed partial class MainWindow
             int[] defaults = [0, 80, 98, 86, 68, 65];
             int[] minimum = [150, 65, 86, 65, 68, 55];
             var widths = Program.Settings.ColumnWidths;
-            for (var i = 1; i < 6; i++)
+            for (var i = 1; i < 4; i++)
             {
                 // Leave room for translated headings and the sort glyph at the current DPI.
                 _grid.Columns[i].MinimumWidth = Math.Max(S(minimum[i]), TextRenderer.MeasureText(_grid.Columns[i].HeaderText, Font).Width + S(22));
-                _grid.Columns[i].Width = Math.Max(_grid.Columns[i].MinimumWidth, S(widths.Length == 6 ? Math.Clamp(widths[i], minimum[i], 250) : defaults[i]));
+                _grid.Columns[i].Width = Math.Max(_grid.Columns[i].MinimumWidth, S(widths.Length >= 4 ? Math.Clamp(widths[i], minimum[i], 250) : defaults[i]));
             }
             var available = _grid.ClientSize.Width;
             var overflow = _grid.Columns.Cast<DataGridViewColumn>().Skip(1).Sum(c => c.Width) + S(150) - available;
-            for (var i = 5; i >= 1 && overflow > 0; i--)
+            for (var i = 3; i >= 1 && overflow > 0; i--)
             {
                 var reduction = Math.Min(overflow, _grid.Columns[i].Width - _grid.Columns[i].MinimumWidth);
                 _grid.Columns[i].Width -= reduction; overflow -= reduction;
@@ -241,7 +241,7 @@ internal sealed class DetailWindow : Form
         Text = title; ClientSize = new Size(570, 390); MinimumSize = new Size(460, 280); StartPosition = FormStartPosition.CenterParent;
         AutoScaleMode = AutoScaleMode.Dpi; Font = new Font("Segoe UI", 9);
         var text = new TextBox { Text = content.ReplaceLineEndings(Environment.NewLine), Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, Dock = DockStyle.Fill, BorderStyle = BorderStyle.None };
-        var close = new Button { Text = UiText.Close, Size = new Size(110, 30), DialogResult = DialogResult.Cancel };
+        var close = new ThemedButton { Text = UiText.Close, Size = new Size(110, 30), DialogResult = DialogResult.Cancel };
         var footer = new Panel { Dock = DockStyle.Bottom, Height = 42 }; footer.Controls.Add(close);
         void CenterClose() => close.Location = new Point((footer.ClientSize.Width - close.Width) / 2, 6);
         footer.Resize += (_, _) => CenterClose(); CenterClose();
@@ -249,7 +249,7 @@ internal sealed class DetailWindow : Form
         Shown += (_, _) => { text.SelectionLength = 0; close.Focus(); };
         if (!string.IsNullOrEmpty(source))
         {
-            var open = new Button { Text = L.T("OpenSource"), Dock = DockStyle.Bottom, Height = 34 };
+            var open = new ThemedButton { Text = L.T("OpenSource"), Dock = DockStyle.Bottom, Height = 34 };
             open.Click += (_, _) => { try { Process.Start(new ProcessStartInfo(VersionChecker.PublicUrl(source).AbsoluteUri) { UseShellExecute = true }); } catch (Exception ex) { Dialogs.Show(this, ex.Message); } };
             Controls.Add(open);
         }
@@ -312,9 +312,9 @@ internal sealed class SourceWindow : Form
         }
         Row("Note", note); Row("TrialResult", result);
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6) };
-        var cancel = new Button { Text = L.T("Cancel"), AutoSize = true, DialogResult = DialogResult.Cancel };
-        var save = new Button { Text = L.T("Save"), AutoSize = true }; var test = new Button { Text = L.T("TestSource"), AutoSize = true };
-        var reset = new Button { Text = L.T("UseCatalog"), AutoSize = true };
+        var cancel = new ThemedButton { Text = L.T("Cancel"), AutoSize = true, DialogResult = DialogResult.Cancel };
+        var save = new ThemedButton { Text = L.T("Save"), AutoSize = true }; var test = new ThemedButton { Text = L.T("TestSource"), AutoSize = true };
+        var reset = new ThemedButton { Text = L.T("UseCatalog"), AutoSize = true };
         buttons.Controls.AddRange([cancel, save, test, reset]); Controls.Add(panel); Controls.Add(buttons); CancelButton = cancel;
         // The token is owned until FormClosed, including in-flight trial requests.
         var trial = new CancellationTokenSource(); FormClosed += (_, _) => { trial.Cancel(); };

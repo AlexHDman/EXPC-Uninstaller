@@ -36,7 +36,7 @@ internal static class UiText
     public static string RefreshHint => Refresh + " (F5)";
     public static string ReadErrors(int count) => L.F("ReadErrors", count);
     public static string[] ContextActions => [Delete, L.T("Force"), L.T("FindJunk"), L.T("RemoveEntry"), L.T("Folder"), L.T("Registry"), L.T("Website"), L.T("Google"), L.T("SourceEditor"), L.T("CheckSelected")];
-    public static string[] Columns => new[] { "ProgramColumn", "SizeColumn", "InstalledColumn", "VersionColumn", "StatusColumn", "NewColumn" }.Select(L.T).ToArray();
+    public static string[] Columns => new[] { "ProgramColumn", "SizeColumn", "InstalledColumn", "VersionColumn" }.Select(L.T).ToArray();
     public static string[] Menus => new[] { "FileMenu", "ActionsMenu", "ViewMenu", "HelpMenu" }.Select(L.T).ToArray();
     public static string Count(int shown, int total) => shown == total ? L.F("Count", total) : L.F("Found", shown, total);
     public static string Size(long? bytes) => bytes switch

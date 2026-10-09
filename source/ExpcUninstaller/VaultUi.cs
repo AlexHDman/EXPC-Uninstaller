@@ -83,8 +83,8 @@ internal sealed class VaultPasswordWindow : Form
         var confirm = change || create ? Password("RepeatPassword") : null;
         var note = new Label { Text = L.T(create || change ? "PasswordLength" : "VaultSession"), AutoSize = true, MaximumSize = new Size(425, 0) }; panel.Controls.Add(note);
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, FlowDirection = FlowDirection.RightToLeft, AutoSize = true };
-        var cancel = new Button { Text = L.T("Cancel"), DialogResult = DialogResult.Cancel, AutoSize = true };
-        var apply = new Button { Text = L.T("Confirm"), AutoSize = true }; buttons.Controls.AddRange([cancel, apply]);
+        var cancel = new ThemedButton { Text = L.T("Cancel"), DialogResult = DialogResult.Cancel, AutoSize = true };
+        var apply = new ThemedButton { Text = L.T("Confirm"), AutoSize = true }; buttons.Controls.AddRange([cancel, apply]);
         Controls.Add(panel); Controls.Add(buttons); AcceptButton = apply; CancelButton = cancel;
         apply.Click += async (_, _) =>
         {
@@ -123,8 +123,8 @@ internal sealed class AccountWindow : Form
         var label = Field("AccountLabel"); var host = Field("AccountHost"); var user = Field("AccountUser"); var password = Field("AccountPassword", true);
         var note = new Label { Text = L.T("AccountHelp"), Dock = DockStyle.Fill, AutoSize = true }; panel.Controls.Add(note, 0, panel.RowCount++); panel.SetColumnSpan(note, 2);
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, FlowDirection = FlowDirection.RightToLeft, AutoSize = true };
-        var close = new Button { Text = UiText.Close, AutoSize = true, DialogResult = DialogResult.Cancel };
-        var save = new Button { Text = L.T("Save"), AutoSize = true }; var add = new Button { Text = L.T("NewAccount"), AutoSize = true }; var remove = new Button { Text = L.T("RemoveAccount"), AutoSize = true };
+        var close = new ThemedButton { Text = UiText.Close, AutoSize = true, DialogResult = DialogResult.Cancel };
+        var save = new ThemedButton { Text = L.T("Save"), AutoSize = true }; var add = new ThemedButton { Text = L.T("NewAccount"), AutoSize = true }; var remove = new ThemedButton { Text = L.T("RemoveAccount"), AutoSize = true };
         buttons.Controls.AddRange([close, save, add, remove]); Controls.Add(panel); Controls.Add(buttons); Controls.Add(list); CancelButton = close;
         void Reload() { list.Items.Clear(); foreach (var account in vault.Accounts) list.Items.Add(account); }
         list.SelectedIndexChanged += (_, _) => { if (list.SelectedItem is VaultAccount account) { label.Text = account.Label; host.Text = account.Host; user.Text = account.Username; password.Clear(); } };

@@ -49,7 +49,7 @@ public sealed class CompletionCandidateTests
             Click(Button("RestoreUpdates")); Assert.IsFalse(new IgnoredUpdates().Contains(App));
             grid.CurrentCell = grid.Rows[0].Cells[1]; Click(Button("SourceEditor"));
             Assert.AreEqual(1, edited); Assert.AreEqual("3.0", grid.Rows[0].Cells[3].Value); Assert.IsTrue(grid.Rows[0].Cells[0].Value is true);
-            Click(Button("RecheckUpdates")); Assert.AreEqual(1, checkedCount); StringAssert.Contains(grid.Rows[0].Cells[5].Value!.ToString()!, L.T("StatusCurrent"));
+            Click(Button("RecheckUpdates")); Assert.AreEqual(1, checkedCount); StringAssert.Contains(grid.Rows[0].Cells[5].ToolTipText, L.T("StatusCurrent"));
             Assert.IsFalse(form.Visible); Assert.IsFalse(form.IsDisposed);
         }
         finally { PortableData.DirectoryPath = old; if (Directory.Exists(dir)) { foreach (var file in Directory.GetFiles(dir)) File.Delete(file); Directory.Delete(dir); } }

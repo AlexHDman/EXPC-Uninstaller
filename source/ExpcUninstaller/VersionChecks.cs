@@ -12,10 +12,11 @@ internal sealed record VersionResult(VersionState State, string Installed, strin
     DateTimeOffset? CheckedAt, DateTimeOffset AttemptedAt, string Reason, string Compatibility, string RuleStamp)
 {
     public ManagedPackage? Package { get; init; }
-    public bool CanInstall => State == VersionState.Update && ReleaseVersion.Compare(Installed, Latest) < 0
+    public bool CanInstall => !ReleaseVersion.DifferentChannel(Installed, Latest) && State == VersionState.Update && ReleaseVersion.Compare(Installed, Latest) < 0
         && Package is { Applicable: true, IdentityConfirmed: true, Pinned: false, Error.Length: 0 }
         && Package.Installed == Installed && Package.Latest == Latest && Package.Manager is "WinGet" or "Chocolatey" or "Scoop";
     public string SelectionReason => CanInstall ? "ReadyForUpdate"
+        : ReleaseVersion.DifferentChannel(Installed, Latest) ? "ChannelMismatch"
         : Package is null && State == VersionState.Update ? "SourceOnlyUpdate"
         : Package is null ? Reason == "ManagerReady" ? "ManagerIdentityReview" : Reason
         : Package.Pinned ? "ManagerPinned"
@@ -61,6 +62,8 @@ internal sealed record VersionRule
 
 internal static class ReleaseVersion
 {
+    internal static bool DifferentChannel(string a, string b) => Channel(a) != Channel(b);
+    private static string Channel(string text) => Regex.Match(text, @"(?i)(alpha|beta|preview|dev|rc)").Value.ToLowerInvariant();
     internal static BigInteger[]? Parse(string input)
     {
         if (input.Length > 100 || !Regex.IsMatch(input, @"^v?\d+(?:\.\d+){1,5}$", RegexOptions.IgnoreCase)) return null;
@@ -170,8 +173,8 @@ internal sealed class VersionChecker(Func<string, CancellationToken, Task<string
     {
         var installed = rule.InstalledPattern.Length == 0 ? app.Version : Extract(app.Version, rule.InstalledPattern);
         var comparison = ReleaseVersion.Compare(installed, version);
-        var sameBranch = rule.Branch.Length == 0 || installed.StartsWith(rule.Branch + ".", StringComparison.Ordinal)
-            && version.StartsWith(rule.Branch + ".", StringComparison.Ordinal);
+        var sameBranch = !ReleaseVersion.DifferentChannel(installed, version) && (rule.Branch.Length == 0 || installed.StartsWith(rule.Branch + ".", StringComparison.Ordinal)
+            && version.StartsWith(rule.Branch + ".", StringComparison.Ordinal));
         var state = !sameBranch ? VersionState.Manual : comparison switch { 0 => VersionState.Current, < 0 => VersionState.Update, _ => VersionState.Unknown };
         return new(state, app.Version, version, rule.EvidenceSource, now, now,
             !sameBranch ? "BranchMismatch" : comparison == null ? "AmbiguousVersion" : comparison > 0 ? "InstalledNewer" : "ComparedBranch",

@@ -51,7 +51,7 @@ internal sealed partial class MainWindow : Form
 
     public MainWindow(SecretVault? vault = null)
     {
-        _vault = vault ?? new SecretVault(Path.Combine(AppContext.BaseDirectory, "accounts.expc-vault"));
+        _vault = vault ?? new SecretVault(Path.Combine(PortablePaths.Root, "accounts.expc-vault"));
         using var iconStream = Assembly.GetExecutingAssembly().GetManifestResourceStream("Expc.Icon.ico")!;
         _applicationIcon = new Icon(iconStream, 32, 32);
         Icon = _applicationIcon;
@@ -320,10 +320,11 @@ internal sealed partial class MainWindow : Form
     {
         if (_actions.Count != 8 || _caption.Count != 3) return;
         SuspendLayout();
-        var menuWidth = Math.Max(S(270), _menu.Items.Cast<ToolStripItem>().Sum(x => x.GetPreferredSize(Size.Empty).Width) + S(16));
+        var menuWidth = _menu.Items.Cast<ToolStripItem>().Sum(x => x.GetPreferredSize(Size.Empty).Width) + S(12);
         var work = Screen.FromControl(this).WorkingArea;
         MinimumSize = new Size(Math.Min(work.Width, Math.Max(S(640), menuWidth + S(320))), Math.Min(work.Height, S(440)));
         _menu.SetBounds(S(8), S(42), menuWidth, S(30));
+        _activity.SetBounds(_menu.Right + S(8), S(44), S(25), S(25));
         _menu.Padding = new Padding(S(6), 0, 0, 0);
         for (var i = 0; i < 3; i++) _caption[i].SetBounds(ClientSize.Width - S(138 - i * 46), S(1), S(44), S(32));
         for (var i = 0; i < 8; i++) _actions[i].SetBounds(ClientSize.Width - S(300 - i * 36), S(42), S(34), S(30));
@@ -419,7 +420,7 @@ internal sealed partial class MainWindow : Form
             _visible = (_descending ? _visible.OrderByDescending(key, comparer) : _visible.OrderBy(key, comparer)).ThenBy(x => x.Name).ToList();
         }
         _grid.RowCount = _visible.Count;
-        for (var i = 0; i < 6; i++) _grid.Columns[i].HeaderCell.SortGlyphDirection = i == _sortColumn
+        for (var i = 0; i < 4; i++) _grid.Columns[i].HeaderCell.SortGlyphDirection = i == _sortColumn
             ? _descending ? SortOrder.Descending : SortOrder.Ascending : SortOrder.None;
         var index = selected == null ? -1 : _visible.FindIndex(x => x.Id == selected);
         if (index >= 0) _grid.CurrentCell = _grid[0, index];

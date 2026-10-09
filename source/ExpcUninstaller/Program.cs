@@ -14,6 +14,8 @@ internal static class Program
         L.Select(PortableData.LanguageFor(Settings.Language, CultureInfo.InstalledUICulture));
         if (!string.IsNullOrEmpty(Settings.Language)) Settings.Language = L.Language;
         Theme.Select(Settings.Theme);
+        try { PortablePaths.VerifyWritable(); }
+        catch (Exception ex) { MessageBox.Show(L.T("PortableReadOnly") + "\n" + PortablePaths.Root + "\n" + ex.Message, UiText.Title, MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         // Portable folder customization: fixed packaged file only; never touch the repository's desktop.ini.
         try
         {
@@ -54,7 +56,7 @@ internal static class Measurements
                 errors,
                 dpi
             });
-            File.AppendAllText(Path.Combine(AppContext.BaseDirectory, "startup-metrics.jsonl"), json + Environment.NewLine);
+            File.AppendAllText(Path.Combine(PortablePaths.Root, "startup-metrics.jsonl"), json + Environment.NewLine);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* Read-only portable folder. */ }
     }

@@ -110,7 +110,7 @@
   "RecheckUpdates": ["Проверить повторно","Check again"],
   "DownloadPage": ["Страница загрузки","Download page"],
   "ShowIgnored": ["Показать игнорируемые","Show ignored"],
-  "UpdateSelectionCount": ["Готово: {0}. Недоступно для установки: {1}. Ограничения указаны в результате и подробностях.","Ready: {0}. Unavailable for installation: {1}. See results and details for restrictions."],
+  "UpdateSelectionCount": ["Выбрано: готово к установке {0}, недоступно {1}. Причины — в подробностях строки.","Selected rows: {0} ready to install, {1} unavailable. See row details for reasons."],
   "StatusChecking": ["Проверяется…","Checking…"],
   "StatusIgnored": ["Игнорируется","Ignored"],
   "StatusUpdate": ["Новая версия","New version"],
@@ -119,5 +119,12 @@
   "SourceOnlyUpdate": ["Новая версия найдена на сайте. Автоматический установщик не сопоставлен; откройте страницу загрузки или измените источник.","New version found on the website. No automatic installer is matched; open the download page or edit the source."],
   "RegistryLinkBlocked": ["Ссылка реестра или недоступный объект: очистка заблокирована.","Registry link or inaccessible object: cleanup blocked."],
   "TargetedScope": ["Проверены только пути с подтверждённой связью с этой установкой; это не полная инвентаризация системы.","Only paths with confirmed links to this installation were checked; this is not a complete system inventory."],
-  "DataScopeUnavailable": ["Не удалось проверить сведения о пользовательских данных; проверка неполная.","User data ownership metadata could not be checked; the check is incomplete."]
+  "DataScopeUnavailable": ["Не удалось проверить сведения о пользовательских данных; проверка неполная.","User data ownership metadata could not be checked; the check is incomplete."],
+  "SourceVersion": ["Версия в источнике","Source version"],
+  "PortableReadOnly": ["Нет доступа для сохранения данных рядом с portable EXE. Переместите весь portable вместе с данными в доступную для записи папку.","Cannot save data beside the portable EXE. Move the portable and its data to a writable folder."],
+  "RecycleFailed": ["Корзина недоступна или операция не выполнена. Безвозвратное удаление не выполнялось.","Recycling was unavailable or failed. No fallback to permanent deletion was used."],
+  "StopOperation": ["Остановить","Stop"],
+  "PartialOperation": ["Остановлено. Выполнено: {0}, осталось: {1}.","Stopped. Completed: {0}; remaining: {1}."],
+  "SearchCancelled": ["Поиск остановлен. Полный результат не получен.","Search stopped. Results are incomplete."],
+  "OperationActive": ["Операция ещё выполняется. Дождитесь завершения или остановите её в окне остатков.","An operation is still active. Wait for completion or stop it in the leftovers window."]
 }

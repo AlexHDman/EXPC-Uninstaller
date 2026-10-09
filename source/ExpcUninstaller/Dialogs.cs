@@ -16,7 +16,7 @@ internal static class Dialogs
         var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 46, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(8) };
         Button Add(string label, DialogResult result)
         {
-            var button = new Button { Text = L.T(label), DialogResult = result, AutoSize = true, MinimumSize = new Size(85, 28) };
+            var button = new ThemedButton { Text = L.T(label), DialogResult = result, AutoSize = true, MinimumSize = new Size(85, 28) };
             bar.Controls.Add(button); return button;
         }
         if (buttons == MessageBoxButtons.YesNo)

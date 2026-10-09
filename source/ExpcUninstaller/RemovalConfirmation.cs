@@ -9,8 +9,8 @@ internal sealed class RemovalConfirmation : Form
         MinimizeBox = MaximizeBox = false; ShowInTaskbar = false; StartPosition = FormStartPosition.Manual;
         var question = new Label { Text = L.F("RemovalQuestion", name), Dock = DockStyle.Fill, Padding = new Padding(14), AutoEllipsis = true };
         var bar = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 46, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(5) };
-        var remove = new Button { Text = L.T("OperationDelete"), DialogResult = DialogResult.OK, AutoSize = true };
-        var cancel = new Button { Text = L.T("Cancel"), DialogResult = DialogResult.Cancel, AutoSize = true };
+        var remove = new ThemedButton { Text = L.T("OperationDelete"), DialogResult = DialogResult.OK, AutoSize = true };
+        var cancel = new ThemedButton { Text = L.T("Cancel"), DialogResult = DialogResult.Cancel, AutoSize = true };
         bar.Controls.AddRange([remove, cancel]); Controls.Add(question); Controls.Add(bar);
         AcceptButton = cancel; CancelButton = cancel; ActiveControl = cancel;
         Shown += (_, _) => cancel.Focus(); Theme.Apply(this);

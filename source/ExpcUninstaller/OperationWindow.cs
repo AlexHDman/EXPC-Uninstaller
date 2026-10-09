@@ -1,11 +1,12 @@
-using System.Text;
+﻿using System.Text;
 
 namespace ExpcUninstaller;
 
 internal sealed class OperationServices
 {
     public Func<AppEntry, CancellationToken, Task<OperationResult>> Uninstall { get; init; } = ProductActions.Uninstall;
-    public Func<AppEntry, List<JunkItem>> Find { get; init; } = BcuTargetedJunkAdapter.Find;
+    public Func<AppEntry, List<JunkItem>> Find { get; init; } = app => BcuTargetedJunkAdapter.Find(app);
+    public Func<AppEntry, CancellationToken, List<JunkItem>>? FindCancellable { get; init; }
     public Func<AppEntry, Task> RemoveRecord { get; init; } = RegistryBackup.RemoveRecord;
     public Func<AppEntry, CleanupEntry, Task> DeleteEntry { get; init; } = CleanupPlan.Delete;
 }
@@ -18,11 +19,14 @@ internal sealed class OperationWindow : Form
     private readonly int _action;
     private readonly OperationServices _services;
     private readonly Func<Task> _refresh;
+    private CancellationTokenSource? _work;
+    private readonly ActivityIndicator _activity = new() { Dock = DockStyle.Right, Width = 30 };
+    internal Action<OperationActivity, string>? Progress;
     private readonly Label _status = new() { Dock = DockStyle.Top, Height = 78, Padding = new Padding(8), AutoEllipsis = true };
     private readonly TextBox _journal = new() { Dock = DockStyle.Bottom, Height = 125, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Visible = false };
     private readonly TreeView _tree = new() { Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, ShowNodeToolTips = true, HideSelection = false };
-    private readonly Button _primary = new() { AutoSize = true };
-    private readonly Button _secondary = new() { AutoSize = true };
+    private readonly Button _primary = new ThemedButton() { AutoSize = true };
+    private readonly Button _secondary = new ThemedButton() { AutoSize = true };
     private readonly HashSet<CleanupEntry> _selected = [];
     private List<CleanupEntry> _entries = [];
     private List<CleanupEntry> _approved = [];
@@ -36,22 +40,23 @@ internal sealed class OperationWindow : Form
     public OperationWindow(AppEntry app, int action, Func<Task> refresh, Image? image = null, OperationServices? services = null, List<CleanupEntry>? initial = null, CleanupCheck? check = null)
     {
         if (action is < 1 or > 3) throw new ArgumentOutOfRangeException(nameof(action), "Normal uninstall must not open OperationWindow");
-        _app = app; _action = action; _refresh = refresh; _services = services ?? new();
+        _app = app; _action = action; _refresh = refresh; _services = services ?? new() { FindCancellable = (app, token) => BcuTargetedJunkAdapter.Find(app, token) };
         Text = L.T("Operation19") + app.Name; ClientSize = new Size(720, 490); MinimumSize = new Size(540, 340);
         AutoScaleMode = AutoScaleMode.Dpi; Font = new Font("Segoe UI", 10.5f); StartPosition = FormStartPosition.Manual;
         TopMost = false; MaximizeBox = false;
         _image = image == null ? null : (Image)image.Clone();
         var header = new Panel { Dock = DockStyle.Top, Height = 52, Padding = new Padding(8) };
+        header.Controls.Add(_activity);
         header.Controls.Add(new Label { Text = app.Name, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true });
         header.Controls.Add(new PictureBox { Image = _image, Dock = DockStyle.Left, Width = 40, SizeMode = PictureBoxSizeMode.Zoom, Padding = new Padding(4) });
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6) };
         buttons.Controls.AddRange([_secondary, _primary]);
         var journalBar = new Panel { Dock = DockStyle.Bottom, Height = 40 };
-        var details = new Button { Text = L.T("OperationDetails"), Dock = DockStyle.Left, AutoSize = true, Width = 195 };
+        var details = new ThemedButton { Text = L.T("OperationDetails"), Dock = DockStyle.Left, AutoSize = true, Width = 195 };
         var actions = new FlowLayoutPanel { Dock = DockStyle.Right, AutoSize = true, WrapContents = false };
         void JournalAction(string key, Action action)
         {
-            var b = new Button { Text = L.T(key), AutoSize = true };
+            var b = new ThemedButton { Text = L.T(key), AutoSize = true };
             b.Click += (_, _) => { try { action(); } catch (Exception ex) { SetStatus(ex.Message); } };
             actions.Controls.Add(b);
         }
@@ -78,7 +83,7 @@ internal sealed class OperationWindow : Form
         _secondary.Click += (_, _) => Secondary();
         _tree.NodeMouseClick += (_, e) => { if (e.Node != null && e.Button == MouseButtons.Left && _tree.HitTest(e.Location).Location.HasFlag(TreeViewHitTestLocations.StateImage)) Toggle(e.Node); };
         _tree.KeyDown += (_, e) => { if (e.KeyCode == Keys.Space && e.Modifiers == Keys.None && _tree.SelectedNode is { } node) { e.Handled = e.SuppressKeyPress = true; Toggle(node); } };
-        FormClosing += (_, e) => { if (Running) e.Cancel = true; };
+        FormClosing += (_, e) => { if (Running) { _work?.Cancel(); e.Cancel = true; } };
         Theme.Apply(this); BuildStateImages();
         _tree.LineColor = GlassTeal.Border; _tree.DrawMode = TreeViewDrawMode.OwnerDrawText;
         _tree.DrawNode += (_, e) =>
@@ -176,7 +181,8 @@ internal sealed class OperationWindow : Form
     }
     private void SetStatus(string text)
     {
-        _status.Text = text; _journal.AppendText(DateTime.Now.ToString("HH:mm:ss") + "  " + text + Environment.NewLine);
+        if (IsDisposed) return;
+        _status.Text = text; Progress?.Invoke(_activity.Activity, text); _journal.AppendText(DateTime.Now.ToString("HH:mm:ss") + "  " + text + Environment.NewLine);
         try { OperationLog.Write("cleanup-ui", _app.Id, text); } catch { }
     }
     private void UpdateButtons()
@@ -185,14 +191,36 @@ internal sealed class OperationWindow : Form
         _primary.Enabled = !Running && (Stage != OperationStage.Leftovers || CleanupPlan.Build(_entries, _selected).Count > 0);
         _primary.Visible = Stage != OperationStage.Finished && !(Stage == OperationStage.Leftovers && _entries.Count == 0);
         _primary.Text = L.T(Stage == OperationStage.Confirm ? _action == 3 ? "OperationDelete" : "OperationFind" : Stage == OperationStage.ConfirmCleanup ? "OperationConfirmCleanup" : "Operation17");
-        _secondary.Enabled = !Running;
-        _secondary.Text = Stage is OperationStage.Confirm or OperationStage.ConfirmCleanup ? L.T("Cancel") : UiText.Close;
+        _secondary.Enabled = true;
+        _activity.Set(Running ? OperationActivity.Busy : _activity.Activity == OperationActivity.Busy ? OperationActivity.Idle : _activity.Activity);
+        _secondary.Text = Running ? L.T("StopOperation") : Stage is OperationStage.Confirm or OperationStage.ConfirmCleanup ? L.T("Cancel") : UiText.Close;
     }
     internal void Secondary()
     {
-        if (Running) return;
+        if (Running) { _work?.Cancel(); return; }
         if (Stage == OperationStage.ConfirmCleanup) { Stage = OperationStage.Leftovers; _approved.Clear(); SetStatus(L.T("CleanupSelectionHelp")); UpdateButtons(); }
         else Close();
+    }
+    private bool _canShowSuccess = true;
+    internal OperationActivity Activity => _activity.Activity;
+    internal async Task Search(string? warning = null, bool removalConfirmed = true)
+    {
+        if (Running) return;
+        _canShowSuccess = removalConfirmed;
+        using var work = new CancellationTokenSource(); _work = work;
+        Stage = OperationStage.Running; _activity.Set(OperationActivity.Busy); UpdateButtons(); SetStatus(L.T("Operation13"));
+        try
+        {
+            var entries = await Task.Run(() => CleanupPlan.Expand(_services.FindCancellable?.Invoke(_app, work.Token) ?? _services.Find(_app), work.Token));
+            work.Token.ThrowIfCancellationRequested();
+            Populate(entries);
+            _activity.Set(_canShowSuccess && warning == null && entries.Count == 0 ? OperationActivity.Success : OperationActivity.Idle);
+            SetStatus(warning == null ? Status : L.T("CleanupCheckError") + ": " + warning);
+            if (warning != null) { _activity.Set(OperationActivity.Error); Stage = OperationStage.Finished; }
+        }
+        catch (OperationCanceledException) { Stage = OperationStage.Finished; _activity.Set(OperationActivity.Idle); SetStatus(L.T("SearchCancelled")); }
+        catch (Exception ex) { Stage = OperationStage.Finished; _activity.Set(OperationActivity.Error); SetStatus(L.T("CleanupCheckError") + ": " + ex.Message); }
+        finally { _work = null; UpdateButtons(); Progress?.Invoke(_activity.Activity, Status); }
     }
     internal async Task Advance()
     {
@@ -202,7 +230,9 @@ internal sealed class OperationWindow : Form
             _approved = CleanupPlan.Build(_entries, _selected); if (_approved.Count == 0) return;
             Stage = OperationStage.ConfirmCleanup; SetStatus(L.T("Operation24") + _app.Name + "»): " + _approved.Count + L.T("Operation25")); UpdateButtons(); return;
         }
-        var previous = Stage; Stage = OperationStage.Running; UpdateButtons();
+        if (Stage == OperationStage.Confirm && _action != 3) { await Search(); return; }
+        using var work = new CancellationTokenSource(); _work = work; int completedCount = 0;
+        var previous = Stage; Stage = OperationStage.Running; _activity.Set(OperationActivity.Busy); UpdateButtons();
         try
         {
             if (previous == OperationStage.ConfirmCleanup)
@@ -210,23 +240,26 @@ internal sealed class OperationWindow : Form
                 var failures = new List<string>();
                 foreach (var entry in _approved)
                 {
-                    try { await Task.Run(() => _services.DeleteEntry(_app, entry)); _entries.RemoveAll(x => x == entry || x == (entry with { ApprovedAnchor = null }));
+                    if (work.IsCancellationRequested) break;
+                    try { await Task.Run(() => _services.DeleteEntry(_app, entry)); completedCount++; _entries.RemoveAll(x => x == entry || x == (entry with { ApprovedAnchor = null }));
                         if (entry.ApprovedAnchor != null) _entries.RemoveAll(x => x.Root == entry.Root && x.Path == entry.Path && x.ValueName == "InstallLocation"); SetStatus(L.T("Operation26") + " " + entry.DisplayPath); }
                     catch (Exception ex) { failures.Add(entry.DisplayPath + ": " + ex.Message); SetStatus(failures[^1]); }
                 }
-                Populate(_entries.ToList()); SetStatus(failures.Count == 0 ? L.T("Operation26") : string.Join(Environment.NewLine, failures)); _approved.Clear();
+                Populate(_entries.ToList());
+                _activity.Set(work.IsCancellationRequested ? OperationActivity.Idle : failures.Count == 0 ? (_canShowSuccess ? OperationActivity.Success : OperationActivity.Idle) : OperationActivity.Error);
+                SetStatus(work.IsCancellationRequested ? L.F("PartialOperation", completedCount, _approved.Count - completedCount) : failures.Count == 0 ? L.T("Operation26") : string.Join(Environment.NewLine, failures)); _approved.Clear();
             }
             else if (_action == 3) { await Task.Run(() => _services.RemoveRecord(_app)); Stage = OperationStage.Finished; SetStatus(L.T("Operation11")); }
             else { Populate(await Task.Run(() => CleanupPlan.Expand(_services.Find(_app)))); }
         }
-        catch (Exception ex) { Stage = OperationStage.Finished; SetStatus(L.T("Operation12") + ": " + ex.Message); }
+        catch (Exception ex) { Stage = OperationStage.Finished; _activity.Set(OperationActivity.Error); SetStatus(L.T("Operation12") + ": " + ex.Message); }
         finally
         {
             var completed = Stage; Stage = OperationStage.Running;
             try { await _refresh(); } catch (Exception ex) { SetStatus(L.T("OperationRefreshError") + ": " + ex.Message); }
-            Stage = completed; UpdateButtons();
+            Stage = completed; _work = null; UpdateButtons(); Progress?.Invoke(_activity.Activity, Status);
         }
     }
     protected override void Dispose(bool disposing)
-    { if (disposing) { _states?.Dispose(); _image?.Dispose(); } base.Dispose(disposing); }
+    { if (disposing) { _work?.Cancel(); _states?.Dispose(); _image?.Dispose(); } base.Dispose(disposing); }
 }
