@@ -18,6 +18,11 @@ internal sealed class SelfUpdateClient : IDisposable
     internal static Version Current => new(typeof(SelfUpdateClient).Assembly.GetName().Version!.ToString(3));
     private async Task<byte[]> Fetch(Uri url, int limit, CancellationToken token)
     {
+        // ResponseHeadersRead does not apply HttpClient.Timeout to the response body.
+        // Bound the complete redirect/body chain too, including a stalled download.
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromMinutes(3));
+        token = deadline.Token;
         for (var redirect = 0; redirect < 6; redirect++)
         {
             if (url.Scheme != "https" || !string.IsNullOrEmpty(url.UserInfo) || url.Port != 443 ||
