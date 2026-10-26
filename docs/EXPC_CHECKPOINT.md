@@ -1,13 +1,15 @@
-# EXPC checkpoint — release 6.3.1
+# EXPC checkpoint — published 6.3.1
 
-EXPC Uninstaller | Release preparation | Development active only for approved self-update/lifecycle scope | Codex, Windows CLI/headless; model/effort unknown.
+Project: EXPC Uninstaller | Stage: active user testing and bug collection | Functional development: paused | Completed mode: scoped implementation → headless gates → release. Agent: Codex / Windows CLI; exact model/effort unavailable.
 
-Starting branch expc/updates-vault @ 71d8390e09305e8148dd16bbf8bdf238923638c3. Existing restructuring preserved; user-modified assets/UI_Master_Visual.png and local unknown files are not part of this release commit. Version: EXPC.Version.props, 6.3.1.
+Branch: codex/release-6.3.1. Immutable EXE producer/tag: 5dbb9ea1923183c7ccc00aa6f6f8982df0c49938 / v6.3.1. Subsequent checkpoint/report commit is documentation only; does not replace the published asset/tag.
 
-Implemented: Help self-update, guarded replacement/helper/handshake, per-user-session native + managed instance protocol, real Close/Alt+F4/Exit. No changes to removal/leftover algorithms. See EXPC_RELEASE_6.3.1.md for evidence and limits.
+Release: https://github.com/AlexHDman/EXPC-Uninstaller/releases/tag/v6.3.1 — stable/latest, verified through public API without token. EXE: C:\AI\EXPC-Uninstaller\dist\EXPCdelete.exe; 9364480 bytes; SHA256 c4b9d739cf447421020341e8acfc001cd05c814979a1dd1af92170619eb647e4.
 
-Pre-release checks: 103/103 selected tests; native policy; console lifecycle and replacement fixtures. Final exact-commit build, artifact SHA and publication receipts belong in ignored artifacts/verification and GitHub Release, not a self-referential source commit.
+Implemented: user-requested self-update and native/managed lifecycle protocol. Existing reorganization retained. Removal/leftover algorithms unchanged. User Visual Master and personal/audit data preserved outside commit.
 
-GUI/tray/focus/DPI/mixed-integrity/live published GUI update: NOT TESTED. Final EXE must not auto-start. Publication explicitly authorized only for this release in own AlexHDman/EXPC-Uninstaller repository; no upstream writes/merge/force push.
+CLI: 103/103, native policy, exact clean producer build, version gate, payload, console lifecycle/replacement fixtures. Draft downloads and public downloads match; production manifest client accepts published 6.3.1 and distinguishes older/current/newer. Evidence: artifacts/verification/release-6.3.1. Report: EXPC_RELEASE_6.3.1_RESULT.md.
 
-After release: active user testing and bug collection; functional development paused. NEXT: user manually tests lifecycle and Help → Update application. Existing leftover/package-update defects remain open.
+LIVE GUI/tray/focus/DPI/mixed-integrity/separate users/real published GUI update: NOT TESTED. No desktop control or final GUI start. Older EXEs need manual replacement once; old running instances should be closed manually.
+
+NEXT: user manual acceptance of the published candidate. Functional development remains paused until a new explicit instruction. Existing defects stay in EXPC_BACKLOG.md.
