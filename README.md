@@ -1,86 +1,46 @@
-## EXPC-Uninstaller fork
+# EXPC Uninstaller / EXPCdelete
 
-Текущая коррекция: [выбор пакетов в окне обновлений](docs/EXPC_UPDATE_SELECTION.md). Оформление: [Amber и высокий стартовый размер](docs/EXPC_AMBER_HEIGHT.md). Функциональная база: [обновления, переносимое хранилище и ограничения проверки](docs/EXPC_UPDATES_VAULT.md).
+Portable-оболочка на механизмах BCU. Текущий этап: активное пользовательское тестирование и сбор багов; функциональная разработка на паузе. Реорганизация 2026-10-26 не меняет функции и темы.
 
-Phase 03A: [облегчённое оформление таблицы и панели](docs/EXPC_PHASE03A.md).
+## Получить текущий кандидат
 
-Phase 03: [действия удаления, адресные остатки и результаты Sandbox](docs/EXPC_PHASE03.md).
+`dist/EXPCdelete.exe` — единственный актуальный распространяемый файл. Это компактный portable: всё приложение внутри, кроме Microsoft .NET Desktop Runtime 10 x64 (минимум 10.0.12, стабильные последующие патчи 10.0 допустимы). Нативный launcher сохраняет существующую проверку runtime. Установщик EXPC отложен.
 
-Оболочка EXPC: .NET 10, SDK **10.0.401** (без preview), WinForms; Glass Amber — кандидат для визуальной приёмки. [История перехода на .NET 10](docs/EXPC_PHASE02A.md).
-
-```console
-dotnet msbuild scripts/Build-ExpcPortable.proj -t:Package,Extract -p:OutputRoot=C:\AI\EXPC-Uninstaller\artifacts\my-fresh-build
+```powershell
+pwsh -NoProfile -File C:\AI\EXPC-Uninstaller\scripts\Build-EXPCdelete.ps1
 ```
 
-OutputRoot должен отсутствовать. Скрипт не перезаписывает предыдущие сборки. Адаптер WinGet поставляется отдельным self-contained процессом; WinGet/Scoop/Chocolatey автоматически не устанавливаются.
+Требуются Windows x64, SDK из global.json (10.0.401), Python 3.12+, PowerShell 7, MSVC Build Tools с Windows SDK и доступный NuGet restore. Команда собирает C#/C++, выполняет безопасные тесты, проверяет embedded payload как данные и только затем атомарно заменяет dist. Предыдущий отличающийся EXE сохраняется с SHA256 в artifacts/archive/control. Приложение автоматически не запускается.
 
-Ниже сохранена исходная документация BCU; её требования .NET 8 относятся к старым проектам BCU.
+Staging находится в build/staging. Повторный запуск удаляет только записанные и не изменённые файлы собственного staging; постороннее содержимое блокирует сборку. Защита от параллельных сборок — build/staging.lock. После аварии проверять процесс и журнал, не удалять lock вслепую. Манифест, хеши входов, команды и тесты — artifacts/verification/<build-id>. dist не содержит служебных файлов.
 
-[![Donate](https://img.shields.io/badge/donate-paypal-brightgreen.svg)](http://klocmansoftware.weebly.com/donate.html)
-[![GitHub release](https://img.shields.io/github/release/klocman/Bulk-Crap-Uninstaller.svg)](https://github.com/Klocman/Bulk-Crap-Uninstaller/releases)
-[![license](https://img.shields.io/github/license/klocman/Bulk-Crap-Uninstaller.svg)](https://github.com/Klocman/Bulk-Crap-Uninstaller/blob/master/Licence.txt)
+## Структура
 
-### [:warning: Looking for maintainers :warning:](https://github.com/Klocman/Bulk-Crap-Uninstaller/discussions/289)
+- src — C#, C++ launcher, необходимые проекты и upstream solution. Внутренняя структура BCU сохранена.
+- assets — исходная пользовательская графика; не перезаписывать.
+- tests — тестовые проекты, изолированные fixtures и консольный тест распаковщика.
+- scripts — сборка, упаковка, проверки. Sandbox-скрипты запускать только в отдельно разрешённой изоляции.
+- docs — требования, checkpoint/backlog, отчёты; upstream/manual и upstream/installer — сохранённые материалы BCU, не новый installer.
+- build — промежуточные результаты, staging и тестовые кэши. **build/toolchain — защищённые офлайн SDK/MFC/NETFX, не удалять при очистке build.**
+- artifacts/verification — доказательства по build-id; artifacts/archive — контрольные кандидаты и классифицированная история.
+- dist/EXPCdelete.exe — стабильная точка выдачи.
 
-# Bulk Crap Uninstaller
-Bulk Crap Uninstaller (or BCUninstaller) is a free (as in speech) program uninstaller. It excels at removing large amounts of applications with minimal user input. It can clean up leftovers, detect orphaned applications, run uninstallers according to premade lists, and much more! Even though BCU was made with IT pros in mind, it can be used by anyone with a basic understanding of how applications are installed/uninstalled in Windows.
+Стандартные obj остаются рядом с проектами; отдельные самостоятельные проекты сохраняют SDK bin по умолчанию. Общая upstream solution остаётся в src для совместимости SolutionDir. Неизвестные корневые %ProgramData% и пользовательский desktop.ini сохранены до отдельного решения. Это структура данного проекта, не объявление общего стандарта EXPC.
 
-BCU is fully compatible with Windows Store Apps, Steam, Windows Features and has special support for many uninstalling systems (NSIS, InnoSetup, Msiexec, and many other). Check below for a full list of functions.
+## Пользовательские данные и ограничения
 
-Bulk Crap Uninstaller is licensed under Apache 2.0 open source license, and can be used in both private and commercial settings for free and with no obligations, as long as no conditions of the license are broken.
+Переименован только внешний распространяемый EXE. Внутренние имена сборок сохранены. EXPC_PORTABLE_ORIGIN по-прежнему определяет каталог portable; данные остаются рядом с внешним EXE. Миграция в LocalAppData отложена. При переносе пользовательской копии сохраняйте её local-data и резервные копии; сборщик их не переносит и не перезаписывает. После ручного запуска рядом с EXE могут появиться runtime-данные — правило «только EXE в dist» относится к выдаваемому пакету, не меняет действующее поведение приложения.
 
-[Visit the official homepage](https://www.bcuninstaller.com/) to see the full list of quirks and features!
+Никаких автоматических запусков GUI и установки/удаления рабочих программ. Публикация 6.3.1 отдельно разрешена пользователем. GUI/DPI/реальный старт нового имени: NOT TESTED. Перед работой читать C:\AI\AGENTS.md и C:\AI\EXPC_DEVELOPMENT_PROTOCOL.md, затем локальные AGENTS.md/CLAUDE.md.
 
-[Read the online documentation](https://htmlpreview.github.io/?https://github.com/Klocman/Bulk-Crap-Uninstaller/blob/master/doc/BCU_manual.html) if you have any questions or issues (the help file included with all releases). If you didn't find an answer to your question, feel free to [open a new issue](https://github.com/Klocman/Bulk-Crap-Uninstaller/issues/new).
+Карта переносов: [docs/EXPC_RESTRUCTURE_MAP.md](docs/EXPC_RESTRUCTURE_MAP.md). Текущее состояние: [checkpoint](docs/EXPC_CHECKPOINT.md). Отложенные задачи: [backlog](docs/EXPC_BACKLOG.md). Итог и ограничения: [отчёт](docs/EXPC_RESTRUCTURE_RESULT.md).
 
-## Download
-You can get the latest version from the releases page. Alternatively you can download it from one of these hosts:
-- [Download from dAppCDN](https://dappcdn.com/download/utilities/bulk-crap-uninstaller)
-- [Download from SourceForge](https://sourceforge.net/projects/bulk-crap-uninstaller/)
-- [Download from FossHub](https://www.fosshub.com/Bulk-Crap-Uninstaller.html)
+Авторство BCU, Licence.txt и NOTICE сохранены. Исходный README BCU: docs/upstream/README-BCU.md. Исторические отчёты сохраняют старые пути; используйте карту переносов, а не переписывайте историю.
 
-#### What are the different variants?
-- Setup - Installs BCU as a normal application. If your system is missing the required .NET runtime, it is automatically installed as well.
-- Portable - Self-contained version that does not require the .NET runtime to run. It includes a runtime which is why the file size is so large.
-- net - Stand-alone portable version that requires the .NET runtime to be installed. Much smaller file size than the full Portable version.
+## Self-update / самообновление (6.3.1)
 
-#### Nightly builds
-If you want to get the latest features and fixes as soon as they are available, you can download a nightly build from the [actions page](https://github.com/Klocman/Bulk-Crap-Uninstaller/actions/workflows/ci.yaml).
+Справка → **Обновить программу** проверяет стабильные выпуски собственного [GitHub-репозитория](https://github.com/AlexHDman/EXPC-Uninstaller/releases/latest) только по команде пользователя. Старые EXE без этой функции замените вручную один раз; закройте старые экземпляры. Удаление/очистка/установка блокируют самообновление. Крестик и Alt+F4 теперь закрывают приложение; повторный запуск новой версии активирует существующий экземпляр в этой пользовательской сессии.
 
-## System requirements
-#### BCUninstaller v6
-- Earliest supported OS: Windows 10 (may work on Windows 7)
-- Requirements: .NET 8 desktop runtime (not needed for portable)
+Help → **Update application** checks stable EXPC releases only on request. Older binaries require one manual replacement. Close existing old instances first. Build and fixture evidence do not replace real GUI acceptance. See [6.3.1 report](docs/EXPC_RELEASE_6.3.1.md).
 
-To get this version download the latest release from the links below.
-
-_*Note: Since none of the supported systems have x86 versions, v6 releases no longer include an x86 build. If you need one you can still compile it yourself, or you can use the AnyCPU build instead._
-
-#### BCUninstaller v5
-- Earliest supported OS: Windows 7 SP1 with all Platform Updates (KB2670838, KB2533623, etc.)
-- Requirements: .NET 6 desktop runtime (not needed for portable)
-
-If you get a DLL error on startup then try running Windows Update. If you get a framework error, install .NET6 either manually or through Windows Update.
-
-To get this version download the [latest available 5.x release](https://github.com/Klocman/Bulk-Crap-Uninstaller/releases/tag/v5.9).
-
-_*Note: The Portable version does not require the .NET6 runtime to be installed, since it is included (that's why the portable version is so large)._
-
-#### BCUninstaller v1 - v4
-- Earliest supported OS: Windows XP (XP support may be dodgy in later releases)
-- Requirements: .Net Framework 4.5 (some versions can run on .Net Framework 3.5 with reduced functionality)
-
-Make sure you have .Net Framework 4.5 installed with all available updates for your system (it is not installed on XP by default).
-
-To get this version compile the [legacy 4.x branch](https://github.com/Klocman/Bulk-Crap-Uninstaller/tree/legacy-4.x) or download the [latest available 4.x release](https://github.com/Klocman/Bulk-Crap-Uninstaller/releases/tag/v4.16).
-
-## How can I help?
-Please check the [contribution](CONTRIBUTING.md) notes!
-
-## Compiling
-Development is done on Visual Studio 2022. The solution should just load and build without doing anything extra, provided necessary VS features are installed.
-The installer is compiled with InnoSetup v6.4. To make a release you have to first run the `publish.bat` script.
-
-## Screenshots
-![preview](../gh-pages/assets/1.png)
-![preview](../gh-pages/assets/4.png)
+Release metadata is generated beside verification evidence, not beside dist/EXPCdelete.exe: EXPCdelete.update.json and SHA256SUMS.txt. EXPC.Version.props is the version source. No independent EXPC installer is built.

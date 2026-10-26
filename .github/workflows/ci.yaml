@@ -1,54 +1,26 @@
-name: CI
-
-on: 
-  push:
-    branches:
-    - master
+name: EXPC portable verification
+on:
+  workflow_dispatch:
   pull_request:
-
 permissions:
   contents: read
-
 jobs:
-
-  build:
+  portable:
     runs-on: windows-2022
-
     steps:
-    - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-    
-    - uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce # v2
-
-    - name: Restore
-      run: msbuild source\BulkCrapUninstaller.sln /t:Restore /p:Configuration=Release /p:Platform="Any CPU" /verbosity:minimal
-    
-    - name: Build
-      run: >
-           msbuild source\BulkCrapUninstaller.sln /t:Publish /p:Configuration=Release /p:Platform="Any CPU" /verbosity:minimal
-           /p:filealignment=512 /p:DeployOnBuild=true /p:PublishSingleFile=False /p:SelfContained=False /p:PublishReadyToRun=false /p:PublishTrimmed=False
-           /p:PublishProtocol=FileSystem /p:PublishDir="${{ github.workspace }}\bin\publish"
-
-    - name: Build launcher
-      run: >
-           msbuild "source\BCU-launcher\BCU-launcher.vcxproj" /t:Build /p:Configuration=Release /p:Platform=Win32 /m /verbosity:minimal
-
-    - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-      with:
-        name: ${{ github.event.repository.name }}_${{ github.sha }}
-        path: bin\publish
-
-    - name: Test
-      run: >
-           dotnet test source\BulkCrapUninstallerTests\BulkCrapUninstallerTests.csproj
-           --configuration Release
-           --no-restore
-           --logger "trx;LogFileName=BulkCrapUninstallerTests.trx"
-           --results-directory "${{ github.workspace }}\TestResults"
-
-    - name: Upload test results
-      if: always()
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-      with:
-        name: windows-test-results_${{ github.sha }}
-        path: TestResults\*.trx
-        if-no-files-found: warn
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build, headless tests, inspect and stage compact portable
+        shell: pwsh
+        run: ./scripts/Build-EXPCdelete.ps1
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: EXPCdelete-${{ github.sha }}
+          path: |
+            dist/EXPCdelete.exe
+            artifacts/verification/

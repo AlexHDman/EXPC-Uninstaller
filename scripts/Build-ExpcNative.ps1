@@ -1,4 +1,4 @@
-param([string]$Output = "$PSScriptRoot\..\artifacts\native")
+param([string]$Output = "$PSScriptRoot\..\build\native")
 $ErrorActionPreference='Stop'
 $root=[IO.Path]::GetFullPath("$PSScriptRoot\..")
 $out=[IO.Path]::GetFullPath($Output)
@@ -7,7 +7,7 @@ $vs=& "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -
 if (!$vs) { throw 'MSVC Build Tools not found' }
 $cmd=@"
 @call "$vs\VC\Auxiliary\Build\vcvars64.bat" >nul
-@cl /nologo /LD /MT /O2 /EHsc /std:c++20 /utf-8 /DUNICODE /D_UNICODE "$root\tools\Expc.PortableLauncher\recycle.cpp" /Fo"$out\recycle.obj" /link /OUT:"$out\Expc.Native.dll" /IMPLIB:"$out\Expc.Native.lib" ole32.lib shell32.lib uuid.lib
+@cl /nologo /LD /MT /O2 /Brepro /EHsc /std:c++20 /utf-8 /DUNICODE /D_UNICODE "$root\src\Expc.PortableLauncher\recycle.cpp" /Fo"$out\recycle.obj" /link /Brepro /OUT:"$out\Expc.Native.dll" /IMPLIB:"$out\Expc.Native.lib" ole32.lib shell32.lib uuid.lib
 @exit /b %errorlevel%
 "@
 $batch=Join-Path $out build-native.cmd

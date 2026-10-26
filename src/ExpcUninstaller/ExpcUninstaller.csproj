@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="../../EXPC.Version.props" />
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.18362.0</TargetFramework>
+    <PublishTrimmed>false</PublishTrimmed>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>EXPC-Uninstaller</AssemblyName>
+    <RootNamespace>ExpcUninstaller</RootNamespace>
+    <Product>EXPC Uninstaller</Product>
+    <AssemblyTitle>EXPC Uninstaller</AssemblyTitle>
+    <ApplicationIcon>..\..\assets\icon.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <OutputPath>..\..\build\bin\EXPC\$(Configuration)\$(Platform)\</OutputPath>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GenerateSatelliteAssembliesForCore>true</GenerateSatelliteAssembliesForCore>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="..\HelperTools\*.cs" />
+    <ProjectReference Include="..\KlocTools\KlocTools.csproj" />
+    <ProjectReference Include="..\StoreAppHelper\StoreAppHelper.csproj" />
+    <EmbeddedResource Include="..\..\assets\icon.ico" LogicalName="Expc.Icon.ico" />
+    <EmbeddedResource Include="VersionRules.json" LogicalName="Expc.VersionRules.json" />
+    <EmbeddedResource Include="Locales\ru.json;Locales\en.json;Locales\updates.json" LogicalName="Expc.Locale.%(Filename).json" />
+    <Content Include="..\..\build\native\Expc.Native.dll" Link="Expc.Native.dll" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\Licence.txt;..\..\NOTICE" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\scripts\portable-desktop.ini" Link="desktop.ini" CopyToOutputDirectory="PreserveNewest" />
+    <InternalsVisibleTo Include="ExpcUninstallerTests" />
+    <InternalsVisibleTo Include="ExpcSandboxTests" />
+    <InternalsVisibleTo Include="ExpcVerification" />
+  </ItemGroup>
+</Project>

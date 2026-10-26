@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+		<OutputPath>..\..\build\bin\Tests\$(MSBuildProjectName)\</OutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SimpleTreeMap\SimpleTreeMap.csproj" />
+  </ItemGroup>
+</Project>

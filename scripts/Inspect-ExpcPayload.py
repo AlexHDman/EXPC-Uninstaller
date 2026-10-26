@@ -4,7 +4,7 @@ import hashlib, json, re, struct, sys
 from pathlib import Path
 
 root = Path(sys.argv[1]).resolve()
-exe = root / 'EXPC-Uninstaller-Compact.exe'
+exe = root / (sys.argv[2] if len(sys.argv)>2 else 'EXPCdelete.exe')
 expected = json.loads((root/'B-payload/manifest.json').read_text())
 k = c.WinDLL('kernel32', use_last_error=True)
 k.LoadLibraryExW.argtypes = [c.c_wchar_p,c.c_void_p,c.c_uint]; k.LoadLibraryExW.restype = c.c_void_p

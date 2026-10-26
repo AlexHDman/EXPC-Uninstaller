@@ -1,0 +1,4 @@
+# Preserve vendor/source bytes during relocation; do not normalize upstream history.
+src/** -text
+tests/** -text
+docs/upstream/** -text

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<TargetFramework />
+		<TargetFrameworks>net8.0-windows10.0.18362.0;net10.0-windows10.0.18362.0</TargetFrameworks>
+		<OutputPath Condition="'$(TargetFramework)' == 'net10.0-windows10.0.18362.0'">..\..\build\bin\EXPC-Dependencies\$(Configuration)\$(Platform)\</OutputPath>
+		<OutputType>Exe</OutputType>
+
+		<AssemblyTitle>Utility for discovering and uninstalling Windows Store apps (including pre-installed apps)</AssemblyTitle>
+
+		<ApplicationIcon>icon.ico</ApplicationIcon>
+		<StartupObject>StoreAppHelper.Program</StartupObject>
+	</PropertyGroup>
+</Project>

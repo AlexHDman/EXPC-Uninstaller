@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+	<OutputType>Library</OutputType>
+	<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+	<OutputPath>..\..\build\bin\Tests\$(MSBuildProjectName)\</OutputPath>
+	  <NoWarn>CA1707;CA1861</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+	<ProjectReference Include="..\..\src\BulkCrapUninstaller\BulkCrapUninstaller.csproj" />
+	<ProjectReference Include="..\..\src\UninstallTools\UninstallTools.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+	<PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
+	<PackageReference Include="MSTest.TestAdapter" Version="4.4.0" />
+	<PackageReference Include="MSTest.TestFramework" Version="4.4.0" />
+  </ItemGroup>
+</Project>

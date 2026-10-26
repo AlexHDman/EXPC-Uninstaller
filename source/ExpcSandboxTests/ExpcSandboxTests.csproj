@@ -1,4 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup><TargetFramework>net10.0-windows10.0.18362.0</TargetFramework><OutputType>Exe</OutputType><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><ApplicationManifest>..\ExpcUninstaller\app.manifest</ApplicationManifest><OutputPath>..\..\bin\EXPC-SandboxTests\</OutputPath><PublishTrimmed>false</PublishTrimmed></PropertyGroup>
-  <ItemGroup><Compile Remove="..\HelperTools\*.cs" /><Compile Include="..\ExpcVerification\VaultTransport.cs" Link="VaultTransport.cs" /><ProjectReference Include="..\ExpcUninstaller\ExpcUninstaller.csproj" /></ItemGroup>
-</Project>

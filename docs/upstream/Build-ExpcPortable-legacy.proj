@@ -1,0 +1,28 @@
+<Project DefaultTargets="Package">
+  <PropertyGroup>
+    <RepositoryRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))</RepositoryRoot>
+    <OutputRoot Condition="'$(OutputRoot)' == ''">$(RepositoryRoot)\artifacts\release-completion\portable</OutputRoot>
+    <OutputRoot>$([System.IO.Path]::GetFullPath('$(OutputRoot)'))</OutputRoot>
+    <PublishDirectory>$(OutputRoot)\publish</PublishDirectory>
+    <ArchivePath>$(OutputRoot)\EXPC-Uninstaller-updates-vault-net10-win-x64.zip</ArchivePath>
+    <ExtractDirectory>$(OutputRoot)\unpacked</ExtractDirectory>
+  </PropertyGroup>
+  <Target Name="Package">
+    <Error Condition="Exists('$(OutputRoot)')" Text="OutputRoot already exists. Choose a new empty path; existing files are never overwritten." />
+    <MakeDir Directories="$(OutputRoot)" />
+    <Exec StdOutEncoding="UTF-8" StdErrEncoding="UTF-8" WorkingDirectory="$(RepositoryRoot)" Command="dotnet publish &quot;src\ExpcUninstaller\ExpcUninstaller.csproj&quot; -c Release -r win-x64 --self-contained true -p:Platform=x64 -p:GenerateSatelliteAssembliesForCore=true -p:PublishTrimmed=false -p:PublishSingleFile=false -p:RestoreSources=https://api.nuget.org/v3/index.json -o &quot;$(PublishDirectory)&quot; --nologo" />
+    <Exec StdOutEncoding="UTF-8" StdErrEncoding="UTF-8" WorkingDirectory="$(RepositoryRoot)" Command="dotnet publish &quot;src\Expc.PackageProbe\Expc.PackageProbe.csproj&quot; -c Release -r win-x64 --self-contained true -p:Platform=x64 -p:PublishTrimmed=false -p:RestoreSources=https://api.nuget.org/v3/index.json -o &quot;$(PublishDirectory)\package-probe&quot; --nologo" />
+    <Copy SourceFiles="$(RepositoryRoot)\Licence.txt;$(RepositoryRoot)\NOTICE" DestinationFolder="$(PublishDirectory)\package-probe" />
+    <Copy SourceFiles="$(RepositoryRoot)\docs\licenses\WinGet-ComInterop-NOTICE.txt;$(RepositoryRoot)\docs\licenses\WinGet-MIT.txt" DestinationFolder="$(PublishDirectory)\package-probe" />
+    <ZipDirectory SourceDirectory="$(PublishDirectory)" DestinationFile="$(ArchivePath)" Overwrite="false" />
+    <GetFileHash Files="$(ArchivePath)" Algorithm="SHA256"><Output TaskParameter="Items" ItemName="ArchiveHash" /></GetFileHash>
+    <WriteLinesToFile File="$(ArchivePath).sha256" Lines="@(ArchiveHash->'%(FileHash)  %(Filename)%(Extension)')" Overwrite="false" />
+    <Message Text="Portable ZIP: $(ArchivePath)" Importance="high" />
+  </Target>
+  <Target Name="Extract">
+    <Error Condition="!Exists('$(ArchivePath)')" Text="Build the ZIP first with target Package." />
+    <Error Condition="Exists('$(ExtractDirectory)')" Text="ExtractDirectory already exists. Choose a fresh destination." />
+    <Unzip SourceFiles="$(ArchivePath)" DestinationFolder="$(ExtractDirectory)" />
+    <Message Text="Run: $(ExtractDirectory)\EXPC-Uninstaller.exe" Importance="high" />
+  </Target>
+</Project>
