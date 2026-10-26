@@ -191,7 +191,7 @@ internal sealed partial class MainWindow : Form
         var selfUpdateFont = new Font(Font, FontStyle.Bold); selfUpdate.Font = selfUpdateFont;
         selfUpdate.Disposed += (_, _) => selfUpdateFont.Dispose();
         help.DropDownItems.Add(selfUpdate);
-        help.DropDownItems.Add(L.T("About"), null, (_, _) => { using var dialog = new DetailWindow(UiText.Title, UiText.Title + " " + typeof(MainWindow).Assembly.GetName().Version + "\n" + L.T("AboutDescription") + "\n\n" + UiText.Attribution + "\n.NET 10 · win-x64\nApache 2.0 · Licence.txt / NOTICE", null); dialog.ShowDialog(this); });
+        help.DropDownItems.Add(L.T("About"), null, (_, _) => { using var dialog = new DetailWindow(UiText.Title, UiText.Title + " " + SelfUpdateClient.Current + "\n" + L.T("AboutDescription") + "\n\n" + UiText.Attribution + "\n.NET 10 · win-x64\nApache 2.0 · Licence.txt / NOTICE", null); dialog.ShowDialog(this); });
         MainMenuStrip = _menu;
         Controls.Add(_menu);
     }

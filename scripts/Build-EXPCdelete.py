@@ -82,6 +82,8 @@ try:
 '''
  (pack/'compile.cmd').write_text(cmd,encoding='utf-8')
  run('launcher',['cmd.exe','/d','/c',str(pack/'compile.cmd')],180)
+ version=__import__('xml.etree.ElementTree',fromlist=['parse']).parse(R/'EXPC.Version.props').findtext('.//Version')
+ run('versions',['pwsh','-NoProfile','-File',str(R/'scripts/Check-ExpcVersion.ps1'),'-Stage',str(S),'-Version',version],30)
  policy=S/'policy-tests.exe'
  policycmd=f'@call "{vs}\\VC\\Auxiliary\\Build\\vcvars64.bat" >nul\n@cl /nologo /MT /O2 /EHsc /std:c++20 /utf-8 "{R}\\src\\Expc.PortableLauncher\\policy-tests.cpp" /Fo"{S}\\policy-tests.obj" /link /OUT:"{policy}" bcrypt.lib\n@exit /b %errorlevel%\n'
  (S/'policy.cmd').write_text(policycmd,encoding='utf-8')
