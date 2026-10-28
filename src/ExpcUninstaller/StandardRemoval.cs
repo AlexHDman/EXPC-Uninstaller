@@ -12,7 +12,7 @@ internal sealed class StandardRemoval
     {
         if (Interlocked.Exchange(ref _running, 1) != 0) return;
         // Capture paths, command metadata and registration identities before external uninstall or list refresh.
-        var snapshot = app with { Sources = app.Sources.ToArray(), Metadata = app.Metadata is { } m ? m with { } : null, LinkedDataPaths = app.LinkedDataPaths.ToArray(), ConfirmedInstallPaths = app.ConfirmedInstallPaths.ToArray() };
+        var snapshot = app with { Sources = app.Sources.ToArray(), Metadata = app.Metadata is { } m ? m with { } : null, LinkedDataPaths = app.LinkedDataPaths.ToArray(), ConfirmedInstallPaths = app.ConfirmedInstallPaths.ToArray(), ProbeOnlyInstallPaths = app.ProbeOnlyInstallPaths.ToArray() };
         void Log(string operation, object result)
         { try { OperationLog.Write(operation, snapshot.Id, JsonSerializer.Serialize(result)); } catch { } }
         void Show(CleanupCheck check)
@@ -26,7 +26,7 @@ internal sealed class StandardRemoval
         {
             if (!confirm(snapshot)) { Log("uninstall-confirmation", "cancelled-before-launch"); return; }
             string? snapshotWarning = null;
-            try { snapshot = snapshot with { ConfirmedInstallPaths = BcuTargetedJunkAdapter.CaptureInstallPaths(snapshot, FastCatalog.ReadRegistry().Entries) }; }
+            try { var catalog = services.Catalog(); if (catalog.ReadErrors != 0) throw new IOException(L.T("Operation65")); snapshot = snapshot with { ConfirmedInstallPaths = BcuTargetedJunkAdapter.CaptureInstallPaths(snapshot, catalog.Entries), ProbeOnlyInstallPaths = BcuTargetedJunkAdapter.CaptureProbePaths(snapshot, catalog.Entries) }; }
             catch (Exception ex) { snapshotWarning = ex.Message; Log("uninstall-path-snapshot-partial", ex.Message); }
             try {
                 var linked = new List<string>(BcuTargetedJunkAdapter.CaptureDataPaths(snapshot));
@@ -36,7 +36,7 @@ internal sealed class StandardRemoval
             }
             catch (Exception ex) { snapshotWarning = ex.Message; Log("uninstall-snapshot-partial", ex.Message); }
             Log("uninstall-snapshot", new { snapshot.Name, snapshot.Version, snapshot.Publisher, snapshot.Sources,
-                location = snapshot.Metadata?.Location, key = snapshot.Metadata?.KeyName, snapshot.IconPath, displayIcon = snapshot.Metadata?.Icon, snapshot.Store, snapshot.LinkedDataPaths, snapshot.ConfirmedInstallPaths, uninstall = snapshot.Metadata?.Uninstall, quietUninstall = snapshot.Metadata?.QuietUninstall,
+                location = snapshot.Metadata?.Location, key = snapshot.Metadata?.KeyName, snapshot.IconPath, displayIcon = snapshot.Metadata?.Icon, snapshot.Store, snapshot.LinkedDataPaths, snapshot.ConfirmedInstallPaths, snapshot.ProbeOnlyInstallPaths, uninstall = snapshot.Metadata?.Uninstall, quietUninstall = snapshot.Metadata?.QuietUninstall,
                 registryScopesAndViews = snapshot.Sources, productCode = snapshot.Metadata?.WindowsInstaller == "1" ? snapshot.Metadata.KeyName : null });
             status(L.T("RemovalWaiting"));
             var result = await Task.Run(() => services.Uninstall(snapshot, CancellationToken.None));

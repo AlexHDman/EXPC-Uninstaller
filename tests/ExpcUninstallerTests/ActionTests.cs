@@ -99,4 +99,55 @@ public sealed class ActionTests
         var rows = FastCatalog.Deduplicate([("CurrentUser/Registry64/Fixture", metadata), ("CurrentUser/Registry32/Fixture", metadata)]);
         Assert.HasCount(1, rows); Assert.HasCount(2, rows[0].Sources); Assert.AreEqual(metadata, rows[0].Metadata);
     }
+
+    [TestMethod]
+    public void ObservedVersionDirectoryAbsentIsCheckedWithoutDeletionAuthority()
+    {
+        var root=Path.Combine(AppContext.BaseDirectory,"version-fixture-"+Guid.NewGuid().ToString("N"));
+        var version=Path.Combine(root,"8.5.1.1302");Directory.CreateDirectory(version);
+        var icon=Path.Combine(version,"client.exe");File.WriteAllText(icon,"fixture");
+        var app=App(version) with {Name="Platform 8",Version="8.5.1.1302",Sources=[]};
+        app=app with {Metadata=app.Metadata! with {KeyName=Guid.NewGuid().ToString("B"),WindowsInstaller="1",Icon=icon,Uninstall="msiexec.exe /x "+Guid.NewGuid().ToString("B")}};
+        var observed=BcuTargetedJunkAdapter.CaptureProbePaths(app,[]);Assert.AreEqual(1,observed.Length);
+        Assert.AreEqual(0,BcuTargetedJunkAdapter.CaptureInstallPaths(app,[]).Length);
+        var other=App(version) with {Sources=["other"]};
+        Assert.AreEqual(0,BcuTargetedJunkAdapter.CaptureProbePaths(app,[other]).Length);
+        app=app with {ProbeOnlyInstallPaths=observed};
+        var remaining=BcuTargetedJunkAdapter.Scan(app,default,new([],0),registryAbsent:(_,_,_)=>true);
+        Assert.IsNotNull(remaining.Warning);Assert.AreEqual(0,remaining.Items.Count);
+        var denied=BcuTargetedJunkAdapter.Scan(app,default,new([],0),_=>throw new UnauthorizedAccessException("fixture denied"));
+        Assert.IsNotNull(denied.Warning);
+        File.Delete(icon);Directory.Delete(version);
+        var absent=BcuTargetedJunkAdapter.Scan(app,default,new([],0),registryAbsent:(_,_,_)=>true);
+        Assert.IsNull(absent.Warning);Assert.AreEqual(0,absent.Items.Count);Assert.IsTrue(absent.CheckedScopes>0);
+        var unknown=BcuTargetedJunkAdapter.Scan(app with {ProbeOnlyInstallPaths=[]},default,new([],0));Assert.IsNotNull(unknown.Warning);
+        Directory.Delete(root);
+    }
+    [TestMethod]
+    public void KnownRemainingFileIsReportedWithinSafeProductRoot()
+    {
+        var root=Path.Combine(AppContext.BaseDirectory,"known-"+Guid.NewGuid().ToString("N"),"Product");Directory.CreateDirectory(root);
+        File.WriteAllText(Path.Combine(root,"known.txt"),"fixture");
+        var found=BcuTargetedJunkAdapter.Scan(App(root) with {Sources=[]},default,new([],0));
+        Assert.IsTrue(found.Items.Any(x=>x.Path==root));
+    }
+
+    [TestMethod]
+    public async Task StandardRemovalPreservesObservationAcrossDisappearingRegistrationAndDirectory()
+    {
+        var root=Path.Combine(AppContext.BaseDirectory,"route-"+Guid.NewGuid().ToString("N"),"8.5.1.1302");Directory.CreateDirectory(root);
+        var icon=Path.Combine(root,"client.exe");File.WriteAllText(icon,"fixture");
+        var app=App(root) with {Name="Platform 8",Version="8.5.1.1302",Sources=[]};
+        app=app with {Metadata=app.Metadata! with {KeyName=Guid.NewGuid().ToString("B"),WindowsInstaller="1",Icon=icon,Uninstall="msiexec.exe /x "+Guid.NewGuid().ToString("B")}};
+        bool checkedResult=false;
+        await new StandardRemoval().Run(app,new(){Catalog=()=>new([],0),Uninstall=(snapshot,_)=>{
+            Assert.AreEqual(1,snapshot.ProbeOnlyInstallPaths.Length);File.Delete(icon);Directory.Delete(root);
+            return Task.FromResult(ProductActions.Completion(0,true,true));
+        }},_=>{},()=>Task.CompletedTask,_=>Assert.Fail("Must use injected scanner"),_=>true,search:(snapshot,warning)=>{
+            Assert.AreEqual(app.Metadata,snapshot.Metadata);
+            var scan=BcuTargetedJunkAdapter.Scan(snapshot,default,new([],0),registryAbsent:(_,_,_)=>true);
+            Assert.IsNull(scan.Warning);Assert.AreEqual(0,scan.Items.Count);Assert.IsTrue(scan.CheckedScopes>0);checkedResult=true;return Task.CompletedTask;
+        });
+        Assert.IsTrue(checkedResult);
+    }
 }

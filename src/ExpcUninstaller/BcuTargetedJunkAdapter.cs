@@ -127,13 +127,34 @@ internal static class BcuTargetedJunkAdapter
         return candidates.Where(CleanupBoundary.LocalPath).Select(CleanupBoundary.Normalize).Distinct(StringComparer.OrdinalIgnoreCase)
             .Where(path => CleanupBoundary.SafeDirectory(app with { Metadata = metadata with { Location = path } }, catalog)).ToArray();
     }
+    // Observation evidence never grants deletion authority. Only capture an existing,
+    // exclusive MSI version directory corroborated by its icon and registered identity.
+    internal static string[] CaptureProbePaths(AppEntry app, IEnumerable<AppEntry> catalog)
+    {
+        if (app.Metadata is not { WindowsInstaller: "1" } m || !Guid.TryParse(m.KeyName, out _)
+            || !CleanupBoundary.LocalPath(m.Location) || string.IsNullOrEmpty(app.Version)) return [];
+        var path = CleanupBoundary.Normalize(m.Location);
+        if (!Path.GetFileName(path).Equals(app.Version, StringComparison.OrdinalIgnoreCase)) return [];
+        var icon = LazyIcons.Parse(m.Icon).Path;
+        if (!CleanupBoundary.LocalPath(icon) || !CleanupBoundary.Within(icon, path)) return [];
+        if (!CleanupBoundary.SafeDirectory(app with { Name = Path.GetFileName(path), Version = "", Publisher = "" }, catalog)) return [];
+        try
+        {
+            if ((File.GetAttributes(path) & FileAttributes.Directory) == 0) return [];
+            CleanupBoundary.NoReparse(path);
+            if ((File.GetAttributes(icon) & (FileAttributes.Directory | FileAttributes.ReparsePoint)) != 0) return [];
+            return [path];
+        }
+        catch (FileNotFoundException) { return []; }
+        catch (DirectoryNotFoundException) { return []; }
+    }
     public static List<JunkItem> Find(AppEntry app, CancellationToken token = default)
     {
         var result = Scan(app, token);
         if (result.CheckedScopes == 0 && result.Warning != null) throw new IOException(result.Warning);
         return result.Items;
     }
-    internal static TargetedScan Scan(AppEntry app, CancellationToken token = default, CatalogResult? catalogOverride = null)
+    internal static TargetedScan Scan(AppEntry app, CancellationToken token = default, CatalogResult? catalogOverride = null, Func<string, bool>? directoryProbe = null, Func<RegistryHive, RegistryView, string, bool>? registryAbsent = null)
     {
         token.ThrowIfCancellationRequested();
         if (app.Store || app.Protected || app.Metadata == null) return new([], L.T("CleanupScopeUnknown"), 0);
@@ -148,32 +169,43 @@ internal static class BcuTargetedJunkAdapter
             catch (OperationCanceledException) { throw; }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException) { warnings.Add(ex.Message); }
         }
-        static bool ExistingDirectory(string path)
+        bool ExistingDirectory(string path)
         {
-            try { return (File.GetAttributes(path) & FileAttributes.Directory) != 0; }
+            try { if (directoryProbe != null) return directoryProbe(path); return (File.GetAttributes(path) & FileAttributes.Directory) != 0; }
             catch (FileNotFoundException) { return false; }
             catch (DirectoryNotFoundException) { return false; }
         }
         var paths = CaptureInstallPaths(app, catalog.Entries);
-        if (paths.Length == 0) warnings.Add(L.T("CleanupScopeUnknown"));
+        if (paths.Length == 0 && app.ProbeOnlyInstallPaths.Length == 0) warnings.Add(L.T("CleanupScopeUnknown"));
         foreach (var path in paths) CheckScope(() =>
         {
             if (!ExistingDirectory(path)) return;
             CleanupBoundary.InspectTree(path, token); results.Add(new("folder", path, "Operation66"));
         });
+        foreach (var observed in app.ProbeOnlyInstallPaths.Except(paths, StringComparer.OrdinalIgnoreCase)) CheckScope(() =>
+        {
+            if (!CleanupBoundary.LocalPath(observed)) { warnings.Add(L.T("CleanupScopeUnknown")); return; }
+            // Access denied propagates to CheckScope: it is never interpreted as absent.
+            if (ExistingDirectory(observed)) warnings.Add(L.T("CleanupProbeRemaining"));
+        });
+        var registryPaths = paths.Concat(app.ProbeOnlyInstallPaths).ToArray();
         var publisher = app.Publisher.Trim(); var name = app.Name.Trim();
         if (!SafeSegment(publisher) || !SafeSegment(name) || publisher.Equals(name, StringComparison.OrdinalIgnoreCase)) warnings.Add(L.T("CleanupRegistryScopeUnknown"));
-        else if (paths.Length > 0)
+        else if (registryPaths.Length > 0)
             foreach (var hive in new[] { RegistryHive.CurrentUser, RegistryHive.LocalMachine })
                 foreach (var view in hive == RegistryHive.CurrentUser ? new[] { RegistryView.Registry64 } : new[] { RegistryView.Registry64, RegistryView.Registry32 })
                     CheckScope(() =>
                     {
                         var path = @"SOFTWARE\" + publisher + @"\" + name;
+                        if (registryAbsent?.Invoke(hive, view, path) == true) return;
                         using var root = RegistryKey.OpenBaseKey(hive, view); RegistryBoundary.NoLinks(hive, view, path);
                         using var key = root.OpenSubKey(path); if (key == null) return;
                         var location = key.GetValue("InstallLocation", null, RegistryValueOptions.DoNotExpandEnvironmentNames) as string;
-                        if (location != null && CleanupBoundary.LocalPath(location) && paths.Contains(CleanupBoundary.Normalize(location), StringComparer.OrdinalIgnoreCase))
-                            results.Add(new("registry", path, "Operation67", hive, view));
+                        if (location != null && CleanupBoundary.LocalPath(location) && registryPaths.Contains(CleanupBoundary.Normalize(location), StringComparer.OrdinalIgnoreCase))
+                        {
+                            if (paths.Contains(CleanupBoundary.Normalize(location), StringComparer.OrdinalIgnoreCase)) results.Add(new("registry", path, "Operation67", hive, view));
+                            else warnings.Add(L.T("CleanupRegistryScopeUnknown") + ": " + hive + @"" + path);
+                        }
                         else warnings.Add(L.T("CleanupRegistryScopeUnknown") + ": " + hive + @"\" + path);
                     });
         var linked = new List<string>(app.LinkedDataPaths);

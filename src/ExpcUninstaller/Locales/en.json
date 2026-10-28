@@ -179,5 +179,9 @@
   "Provider_manual": "Manual check",
   "SelfUpdate": "Update application",
   "UserDataImportFailed": "Could not import EXPC data into the user profile. Original files have been retained.",
-  "UserDataReadOnly": "The EXPC user-profile data directory is not writable."
+  "UserDataReadOnly": "The EXPC user-profile data directory is not writable.",
+  "ResultDetails": "Details",
+  "ResultIncomplete": "Could not fully check leftovers. Some information or access is unavailable; see details.",
+  "CleanupProbeRemaining": "An observed directory remains; safe cleanup ownership is not established.",
+  "CleanupEmpty": "No leftovers found"
 }

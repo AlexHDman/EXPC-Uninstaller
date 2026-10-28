@@ -4,6 +4,7 @@ namespace ExpcUninstaller;
 
 internal sealed class OperationServices
 {
+    public Func<CatalogResult> Catalog { get; init; } = FastCatalog.ReadRegistry;
     public Func<AppEntry, CancellationToken, Task<OperationResult>> Uninstall { get; init; } = ProductActions.Uninstall;
     public Func<AppEntry, List<JunkItem>> Find { get; init; } = app => BcuTargetedJunkAdapter.Find(app);
     public Func<AppEntry, CancellationToken, TargetedScan>? Scan { get; init; }
@@ -24,7 +25,9 @@ internal sealed class OperationWindow : Form
     private CancellationTokenSource? _work;
     private readonly ActivityIndicator _activity = new() { Dock = DockStyle.Right, Width = 30 };
     internal Action<OperationActivity, string>? Progress;
-    private readonly Label _status = new() { Dock = DockStyle.Top, Height = 78, Padding = new Padding(8), AutoEllipsis = true };
+    private bool _compact;
+    private Panel? _journalActions;
+    private readonly Label _status = new() { Dock = DockStyle.Top, Height = 78, Padding = new Padding(8), AutoEllipsis = false };
     private readonly TextBox _journal = new() { Dock = DockStyle.Bottom, Height = 125, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Visible = false };
     private readonly LeftoverTree _tree = new() { Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, ShowNodeToolTips = true, HideSelection = false };
     private readonly Button _primary = new ThemedButton() { AutoSize = true };
@@ -55,8 +58,8 @@ internal sealed class OperationWindow : Form
         header.Controls.Add(new PictureBox { Image = _image, Dock = DockStyle.Left, Width = 40, SizeMode = PictureBoxSizeMode.Zoom, Padding = new Padding(4) });
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Bottom, AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Padding = new Padding(6) };
         buttons.Controls.AddRange([_secondary, _primary]);
-        var journalBar = new Panel { Dock = DockStyle.Bottom, Height = 40 };
-        var details = new ThemedButton { Text = L.T("OperationDetails"), Dock = DockStyle.Left, AutoSize = true, Width = 195 };
+        var journalBar = new Panel { Dock = DockStyle.Bottom, Height = 26 };
+        var details = new LinkLabel { Text = L.T("ResultDetails"), Dock = DockStyle.Left, AutoSize = true, Padding = new Padding(4), LinkColor = GlassTeal.Text };
         var actions = new FlowLayoutPanel { Dock = DockStyle.Right, AutoSize = true, WrapContents = false };
         void JournalAction(string key, Action action)
         {
@@ -64,7 +67,7 @@ internal sealed class OperationWindow : Form
             b.Click += (_, _) => { try { action(); } catch (Exception ex) { SetStatus(ex.Message); } };
             actions.Controls.Add(b);
         }
-        JournalAction("CleanupClearLog", () => _journal.Clear());
+        _journalActions = actions; actions.Visible = false;
         JournalAction("CleanupCopyLog", () => { if (_journal.TextLength > 0) Clipboard.SetText(_journal.Text); });
         JournalAction("CleanupSaveLog", () =>
         {
@@ -75,7 +78,8 @@ internal sealed class OperationWindow : Form
         Controls.Add(_tree); Controls.Add(_journal); Controls.Add(journalBar); Controls.Add(_status); Controls.Add(header); Controls.Add(buttons);
         details.Click += (_, _) =>
         {
-            _journal.Visible = !_journal.Visible;
+            _journal.Visible = !_journal.Visible; actions.Visible = _journal.Visible; journalBar.Height = (_journal.Visible ? 40 : 26) * DeviceDpi / 96;
+            if (_compact) Height = Math.Min(Screen.FromControl(this).WorkingArea.Height, (_journal.Visible ? 430 : 250) * DeviceDpi / 96);
             if (_journal.Visible && Height < 465 * DeviceDpi / 96)
             {
                 var work = Screen.FromControl(this).WorkingArea;
@@ -97,16 +101,16 @@ internal sealed class OperationWindow : Form
             e.Graphics.FillRectangle(background, e.Bounds);
             TextRenderer.DrawText(e.Graphics, e.Node.Text, _tree.Font, e.Bounds, GlassTeal.Text, TextFormatFlags.NoPrefix | TextFormatFlags.VerticalCenter);
         };
-        if (check?.Error != null) { Stage = OperationStage.Finished; SetStatus(check.Error); }
+        if (check?.Error != null) { Stage = OperationStage.Finished; SetStatus(L.T("ResultIncomplete")); _journal.AppendText(check.Error + Environment.NewLine); }
         else if (initial != null) Populate(initial);
         else SetStatus(action == 1 ? L.T("Operation6") + app.Name + L.T("Operation7") : action == 3 ? L.T("Operation8") + app.Name + L.T("Operation9") : L.T("OperationFindPrompt"));
-        if (check?.Notice != null) SetStatus(Status + "\n" + check.Notice);
-        if (initial is { Count: 0 }) ClientSize = new Size(720, 300);
+        if (check?.Notice != null) { _journal.AppendText(check.Notice + Environment.NewLine); if (check.Error == null) SetStatus(L.T("ResultIncomplete")); }
+        ApplyResultLayout();
         UpdateButtons();
     }
     internal static Rectangle Placement(Rectangle owner, Rectangle work, int dpi, bool compact = false)
     {
-        var width = Math.Min(work.Width, (int)(740L * dpi / 96)); var height = Math.Min(work.Height, (int)((compact ? 340L : 530L) * dpi / 96));
+        var width = Math.Min(work.Width, (int)((compact ? 560L : 740L) * dpi / 96)); var height = Math.Min(work.Height, (int)((compact ? 250L : 530L) * dpi / 96));
         return new(Math.Clamp(owner.Left + (owner.Width - width) / 2, work.Left, work.Right - width),
             Math.Clamp(owner.Top + (owner.Height - height) / 2, work.Top, work.Bottom - height), width, height);
     }
@@ -116,7 +120,7 @@ internal sealed class OperationWindow : Form
         Location = owner.Location; // move to the owner's monitor before applying its physical DPI
         MinimumSize = Size.Empty;
         Bounds = Placement(owner.Bounds, work, owner.DeviceDpi, _entries.Count == 0 && Stage != OperationStage.Confirm);
-        MinimumSize = new Size(Math.Min(work.Width, 540 * owner.DeviceDpi / 96), Math.Min(work.Height, 340 * owner.DeviceDpi / 96));
+        MinimumSize = new Size(Math.Min(work.Width, (_compact ? 420 : 540) * owner.DeviceDpi / 96), Math.Min(work.Height, (_compact ? 220 : 340) * owner.DeviceDpi / 96));
     }
     protected override void OnDpiChanged(DpiChangedEventArgs e) { base.OnDpiChanged(e); BuildStateImages(); }
     protected override void OnBackColorChanged(EventArgs e) { base.OnBackColorChanged(e); if (_states != null && !_tree.IsDisposed) BuildStateImages(); }
@@ -198,6 +202,18 @@ internal sealed class OperationWindow : Form
         _status.Text = text; Progress?.Invoke(_activity.Activity, text); _journal.AppendText(DateTime.Now.ToString("HH:mm:ss") + "  " + text + Environment.NewLine);
         try { OperationLog.Write("cleanup-ui", _app.Id, text); } catch { }
     }
+    private void ApplyResultLayout()
+    {
+        _compact = _entries.Count == 0 && Stage != OperationStage.Confirm && !Running;
+        _tree.Visible = !_compact;
+        if (_compact)
+        {
+            MinimumSize = Size.Empty;
+            ClientSize = new Size(560 * DeviceDpi / 96, (_journal.Visible ? 400 : 220) * DeviceDpi / 96);
+            var work = Screen.FromControl(this).WorkingArea;
+            if (Owner != null) Bounds = Placement(Owner.Bounds, work, DeviceDpi, true);
+        }
+    }
     private void UpdateButtons()
     {
         _tree.Enabled = Stage == OperationStage.Leftovers;
@@ -246,13 +262,15 @@ internal sealed class OperationWindow : Form
                 _scopeWarning = result.warning; _canShowSuccess = false;
                 _activity.Set(OperationActivity.Error);
                 if (result.CheckedScopes == 0 && result.entries.Count == 0) Stage = OperationStage.Finished;
-                SetStatus(L.T(result.CheckedScopes == 0 && result.entries.Count == 0 ? "CleanupFailed" : "CleanupPartial") + ": " + result.warning);
+                SetStatus(L.T("ResultIncomplete"));
+                _journal.AppendText(result.warning + Environment.NewLine);
+                try { OperationLog.Write("cleanup-scan-warning", _app.Id, result.warning); } catch { }
             }
             else { _activity.Set(_canShowSuccess && result.entries.Count == 0 ? OperationActivity.Success : OperationActivity.Idle); SetStatus(Status); }
         }
         catch (OperationCanceledException) { Stage = OperationStage.Finished; _activity.Set(OperationActivity.Idle); SetStatus(L.T("SearchCancelled")); }
-        catch (Exception ex) { Stage = OperationStage.Finished; _activity.Set(OperationActivity.Error); SetStatus(L.T("CleanupFailed") + ": " + ex.Message); }
-        finally { _work = null; UpdateButtons(); Progress?.Invoke(_activity.Activity, Status); }
+        catch (Exception ex) { Stage = OperationStage.Finished; _activity.Set(OperationActivity.Error); SetStatus(L.T("ResultIncomplete")); _journal.AppendText(ex.ToString() + Environment.NewLine); try { OperationLog.Write("cleanup-scan-error", _app.Id, ex.ToString()); } catch { } }
+        finally { _work = null; ApplyResultLayout(); UpdateButtons(); Progress?.Invoke(_activity.Activity, Status); }
     }
     internal async Task Advance()
     {
@@ -289,7 +307,7 @@ internal sealed class OperationWindow : Form
         {
             var completed = Stage; Stage = OperationStage.Running;
             try { await _refresh(); } catch (Exception ex) { SetStatus(L.T("OperationRefreshError") + ": " + ex.Message); }
-            Stage = completed; _work = null;
+            Stage = completed; _work = null; ApplyResultLayout();
             if (_scopeWarning != null) SetStatus(Status + "\n" + L.T("CleanupPartial") + ": " + _scopeWarning);
             UpdateButtons(); Progress?.Invoke(_activity.Activity, Status);
         }

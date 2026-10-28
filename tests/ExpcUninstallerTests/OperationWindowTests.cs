@@ -93,7 +93,7 @@ public sealed class OperationWindowTests
         Assert.AreEqual(L.T("CleanupEmpty"), empty.Status); Assert.AreEqual(0, empty.Tree.Nodes.Count);
         Assert.AreEqual(GlassTeal.Background, empty.Tree.BackColor);
         using var error = new OperationWindow(App, 2, () => Task.CompletedTask, initial: [], check: new([], "fixture scan error"));
-        Assert.AreEqual(OperationStage.Finished, error.Stage); Assert.AreEqual("fixture scan error", error.Status);
+        Assert.AreEqual(OperationStage.Finished, error.Stage); Assert.AreEqual(L.T("ResultIncomplete"), error.Status);
         Assert.IsFalse(error.Controls.OfType<TextBox>().Single().Text.Contains(L.T("CleanupEmpty")));
         Assert.AreEqual(0, Application.OpenForms.Count);
     });
@@ -180,10 +180,9 @@ public sealed class OperationWindowTests
         Pump(window.Advance()); Assert.AreEqual(1, deleted.Count); Assert.IsFalse(deleted.Contains(profile));
         var log = window.Controls.OfType<TextBox>().Single(); Assert.IsTrue(log.TextLength > 0);
         IEnumerable<Control> All(Control c) => c.Controls.Cast<Control>().SelectMany(x => new[] { x }.Concat(All(x)));
-        var clear = All(window).OfType<Button>().Single(x => x.Text == L.T("CleanupClearLog"));
-        var diagnostic = Path.Combine(OperationLog.DirectoryPath, "operations.jsonl"); var length = new FileInfo(diagnostic).Length;
-        typeof(Button).GetMethod("OnClick", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(clear, [EventArgs.Empty]);
-        Assert.AreEqual(0, log.TextLength); Assert.AreEqual(length, new FileInfo(diagnostic).Length);
+        Assert.IsFalse(All(window).OfType<Button>().Any(x => x.Text == L.T("CleanupClearLog")));
+        Assert.IsTrue(All(window).OfType<Button>().Any(x => x.Text == L.T("CleanupCopyLog")));
+        Assert.IsTrue(log.TextLength > 0);
         Assert.AreEqual(0, Application.OpenForms.Count); Assert.IsFalse(window.Visible);
         Assert.Throws<ArgumentOutOfRangeException>(() => new OperationWindow(App, 0, () => Task.CompletedTask));
     });
@@ -217,5 +216,32 @@ public sealed class OperationWindowTests
             Assert.AreEqual(1, launched); Assert.AreEqual(exit == 0 ? 1 : 0, shown, string.Join("\n", statuses)); Assert.AreEqual(shown, scanned);
         }
         finally { Directory.Delete(root, false); }
+    }
+
+    [TestMethod]
+    public void CompactOutcomesHaveHiddenJournalAndDpiBoundedPlacement()
+    {
+        Sta(()=>{
+            using var form=new OperationWindow(App,2,()=>Task.CompletedTask,initial:[]);
+            Assert.IsTrue(form.ClientSize.Height<300);Assert.IsFalse(form.Tree.Visible);
+            Assert.IsFalse(form.Controls.OfType<TextBox>().Single().Visible);
+            foreach(var dpi in new[]{96,144,192}){
+                var work=new Rectangle(0,0,1280,720);var bounds=OperationWindow.Placement(new(100,100,720,600),work,dpi,true);
+                Assert.IsTrue(work.Contains(bounds));Assert.IsTrue(bounds.Height<=250*dpi/96);
+            }
+        });
+    }
+
+    [TestMethod] [DataRow(96)] [DataRow(144)] [DataRow(192)]
+    public void CompactResultTextFitsAtProgrammaticScale(int dpi)
+    {
+        Sta(()=>{
+            using var form=new OperationWindow(App,2,()=>Task.CompletedTask,initial:[],check:new([],Error:"internal fixture diagnostic"));
+            form.Scale(new SizeF(dpi/96f,dpi/96f));form.PerformLayout();
+            var label=form.Controls.OfType<Label>().Single();
+            var measured=TextRenderer.MeasureText(label.Text,label.Font,new Size(Math.Max(1,label.Width-16*dpi/96),int.MaxValue),TextFormatFlags.WordBreak);
+            Assert.IsTrue(measured.Height<=label.Height, $"Text height {measured.Height}; label {label.Height}; scale {dpi}");
+            Assert.DoesNotContain("internal fixture",label.Text);
+        });
     }
 }

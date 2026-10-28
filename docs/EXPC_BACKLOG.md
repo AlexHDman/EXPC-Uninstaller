@@ -29,3 +29,5 @@
 ## 6.3.4 — authorized self-update follow-up
 
 Implemented progress, bounded helper handoff, persistent stage journal, compact localized summary, target-volume replacement preparation and rollback guards. The original 6.3.2 GUI stall was not reproduced: its actual networking and helper passed isolated component checks. Historical cause remains UNKNOWN; GUI acceptance remains open. See EXPC_SELF_UPDATE_6.3.4.md. Real cross-volume replacement NOT TESTED. No removal/leftover fixes included.
+
+6.3.5: version-directory observation and compact leftover outcome implemented/tested with synthetic fixtures; actual 1C uninstall and physical GUI/DPI NOT TESTED. Details in EXPC_LEFTOVERS_6.3.5.md. User explicitly approved publication.
