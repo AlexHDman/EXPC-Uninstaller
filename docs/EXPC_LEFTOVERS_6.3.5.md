@@ -25,3 +25,15 @@ Empty and incomplete outcomes use a compact 560x220 logical client area, short R
 NOT TESTED: actual 1C uninstall, information bases, physical GUI/DPI on real monitors and historical installation metadata. No universal claim that 1C never leaves data. Self-update and other existing features retained.
 
 After publication: user acceptance; active testing/bug collection, functional development paused.
+
+## Published result — 2026-10-29 (Europe/Moscow)
+
+Stable/latest: https://github.com/AlexHDman/EXPC-Uninstaller/releases/tag/v6.3.5
+EXE: https://github.com/AlexHDman/EXPC-Uninstaller/releases/download/v6.3.5/EXPCdelete.exe
+Producer commit 6a8d5c6d3f2a3648d32a78833814e575a6c068f3, tag v6.3.5. Documentation-only follow-up does not move this tag.
+Local dist/EXPCdelete.exe: 9,366,528 bytes, SHA256 2f8b6f888b47c07071341e691fb93cadefed42a6cc54db6df49a72c287e4a188.
+Clean build receipt: build/release-6.3.5-source/artifacts/verification/20261028-235838, copied to artifacts/verification/release-6.3.5.
+125/125 canonical safe tests passed. Final exact-commit ActionTests/OperationWindowTests: 41 passed, 4 skipped, including programmatic text-fit/placement checks at 96/144/192. No physical DPI acceptance inferred.
+Draft assets downloaded back and matched before stable publication; public latest API and all assets verified without token. Production update client sees version=current=6.3.5; older needs update and newer is not downgraded.
+User asset hash preserved. No upstream writes, force push or merge. Existing releases retained. Final EXE not launched. Actual 1C uninstall and physical GUI NOT TESTED.
+NEXT: user acceptance. Active testing / bug collection; functional development paused.
