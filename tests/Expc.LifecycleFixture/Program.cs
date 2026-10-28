@@ -9,6 +9,17 @@ if (args[0] == "check-public")
     Console.WriteLine(JsonSerializer.Serialize(new { version=release.Manifest.Version, current=SelfUpdateClient.Current.ToString(), equal=v==SelfUpdateClient.Current, olderNeedsUpdate=v>new Version(v.Major,v.Minor,Math.Max(0,v.Build-1)), newerNoDowngrade=v<new Version(v.Major,v.Minor,v.Build+1) }));
     return 0;
 }
+if (args[0] == "download-public")
+{
+    using var client = new SelfUpdateClient();
+    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+    var elapsed=System.Diagnostics.Stopwatch.StartNew();
+    var release=await client.Check(timeout.Token) ?? throw new Exception("Release unavailable");
+    var path=await client.Download(release.Manifest,timeout.Token,testCache:Path.GetFullPath(args[1]));
+    Console.WriteLine(JsonSerializer.Serialize(new { version=release.Manifest.Version,bytes=new FileInfo(path).Length,
+        sha256=SelfUpdatePolicy.Hash(path),seconds=elapsed.Elapsed.TotalSeconds,ruSummary=release.Summary("ru").Length,enSummary=release.Summary("en").Length }));
+    return 0;
+}
 if (args[0] == "swap")
 {
     var request=JsonSerializer.Deserialize<ReplacementRequest>(File.ReadAllText(args[1]),SelfUpdatePolicy.Json)!;

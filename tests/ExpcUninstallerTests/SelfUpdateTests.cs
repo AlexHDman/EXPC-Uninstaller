@@ -76,4 +76,87 @@ public sealed class SelfUpdateTests
             Assert.AreEqual("original",File.ReadAllText(origin));
         } finally { foreach(var file in Directory.GetFiles(root))File.Delete(file);Directory.Delete(root); }
     }
+
+    [TestMethod]
+    public void SummaryUsesOnlyMarkedUserLanguageAndNeverTechnicalBody()
+    {
+        var r = new SelfRelease(Manifest(), "Hash TESTED RU/EN\n<!-- expc-summary:ru -->\n- Коротко\n<!-- /expc-summary -->\n<!-- expc-summary:en -->\n- Brief\n<!-- /expc-summary -->");
+        CollectionAssert.AreEqual(new[]{"Коротко"},r.Summary("ru"));
+        CollectionAssert.AreEqual(new[]{"Brief"},r.Summary("en"));
+        Assert.AreEqual(0,(r with { Notes="full technical release body" }).Summary("ru").Length);
+    }
+    private sealed class ProgressSink : IProgress<UpdateProgress>
+    {
+        internal readonly List<UpdateProgress> Values = [];
+        public void Report(UpdateProgress value) => Values.Add(value);
+    }
+    [TestMethod]
+    public async Task DownloadReportsBytesVerifiesAndBadHashCanRetryWithoutTouchingData()
+    {
+        var root = Path.Combine(AppContext.BaseDirectory,"update-fixture-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var data = File.ReadAllBytes(typeof(SelfUpdateClient).Assembly.Location);
+        var m = Manifest(SelfUpdateClient.Current.ToString()) with { Bytes=data.Length, Sha256=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(data)) };
+        File.WriteAllText(Path.Combine(root,"user-data.txt"),"preserve");
+        using var client = new SelfUpdateClient(new Handler(_ => new(HttpStatusCode.OK) {Content=new ByteArrayContent(data)}));
+        var sink = new ProgressSink();
+        await Assert.ThrowsExactlyAsync<InvalidDataException>(() => client.Download(m with {Sha256=new string('0',64)},default,sink,root));
+        Assert.AreEqual(0,Directory.GetFiles(root,"*.exe",SearchOption.AllDirectories).Length);
+        var path = await client.Download(m,default,sink,root);
+        Assert.AreEqual(m.Sha256,SelfUpdatePolicy.Hash(path));
+        Assert.IsTrue(sink.Values.Any(x=>x.Stage=="download" && x.Bytes==m.Bytes));
+        Assert.IsTrue(sink.Values.Any(x=>x.Stage=="verify"));
+        Assert.AreEqual("preserve",File.ReadAllText(Path.Combine(root,"user-data.txt")));
+    }
+    private sealed class StalledStream : Stream
+    {
+        public override bool CanRead=>true; public override bool CanSeek=>false;public override bool CanWrite=>false;
+        public override long Length=>throw new NotSupportedException();public override long Position{get=>0;set=>throw new NotSupportedException();}
+        public override int Read(byte[] b,int o,int c)=>throw new NotSupportedException();
+        public override async ValueTask<int> ReadAsync(Memory<byte> b,CancellationToken token=default){await Task.Delay(Timeout.Infinite,token);return 0;}
+        public override void Flush(){}public override long Seek(long o,SeekOrigin s)=>throw new NotSupportedException();public override void SetLength(long l)=>throw new NotSupportedException();public override void Write(byte[] b,int o,int c)=>throw new NotSupportedException();
+    }
+    [TestMethod]
+    public async Task StalledBodyHasBoundedIdleTimeoutAndCancellation()
+    {
+        var root=Path.Combine(AppContext.BaseDirectory,"stall-"+Guid.NewGuid().ToString("N"));
+        using var client=new SelfUpdateClient(new Handler(_=>new(HttpStatusCode.OK){Content=new StreamContent(new StalledStream())}),TimeSpan.FromMilliseconds(80));
+        await Assert.ThrowsExactlyAsync<TimeoutException>(()=>client.Download(Manifest(),default,null,root));
+        using var cancel=new CancellationTokenSource(20);
+        await Assert.ThrowsAsync<OperationCanceledException>(()=>client.Download(Manifest(),cancel.Token,null,root));
+        Assert.AreEqual(0,Directory.GetFiles(root,"*.exe",SearchOption.AllDirectories).Length);
+    }
+    [TestMethod]
+    public void WaitingForLiveProcessTimesOutWithoutKillingIt()
+    {
+        using var self=System.Diagnostics.Process.GetCurrentProcess();
+        Assert.ThrowsExactly<TimeoutException>(()=>Replacement.Wait(self.Id,self.StartTime.ToUniversalTime().Ticks,20));
+        Assert.IsFalse(self.HasExited);
+    }
+    [TestMethod]
+    public void ExplicitUpdateJournalSurvivesOutcomeAndDoesNotEnableMetrics()
+    {
+        var root=Path.Combine(AppContext.BaseDirectory,"journal-"+Guid.NewGuid().ToString("N"));
+        var journal=new UpdateJournal(testLogs:root);journal.Write("wait-old-launcher");journal.Outcome(false,"handshake-failed");
+        Assert.IsTrue(File.ReadAllText(journal.Path).Contains("handshake-failed"));
+        Assert.IsFalse(File.Exists(Path.Combine(root,"startup-metrics.jsonl")));
+    }
+
+    [TestMethod]
+    public void ReplacementStagesOnTargetAndProtectsRollbackAndNeighbourData()
+    {
+        var root=Path.Combine(AppContext.BaseDirectory,"swap-"+Guid.NewGuid().ToString("N"));
+        var cache=Path.Combine(root,"cache");var target=Path.Combine(root,"target том");Directory.CreateDirectory(cache);Directory.CreateDirectory(target);
+        var bytes=File.ReadAllBytes(typeof(SelfUpdateClient).Assembly.Location);
+        var download=Path.Combine(cache,"next.exe");File.WriteAllBytes(download,bytes);
+        var origin=Path.Combine(target,"мой EXPC.exe");File.WriteAllBytes(origin,bytes.Concat(new byte[]{1,2,3}).ToArray());
+        var data=Path.Combine(target,"profile.dat");File.WriteAllText(data,"preserve");
+        var m=Manifest(SelfUpdateClient.Current.ToString()) with {Bytes=bytes.Length,Sha256=SelfUpdatePolicy.Hash(download)};
+        var request=new ReplacementRequest(origin,download,SelfUpdatePolicy.Hash(origin),m,0,0,0,0,"fixture");
+        var backup=Replacement.Swap(request);
+        Assert.AreEqual(target,Path.GetDirectoryName(backup));Assert.AreEqual(m.Sha256,SelfUpdatePolicy.Hash(origin));
+        Assert.AreEqual(request.OldHash,SelfUpdatePolicy.Hash(backup));Assert.AreEqual(0,Directory.GetFiles(target,"replace-*.exe").Length);
+        Replacement.Rollback(origin,backup,request.OldHash,m.Sha256);
+        Assert.AreEqual(request.OldHash,SelfUpdatePolicy.Hash(origin));Assert.AreEqual("preserve",File.ReadAllText(data));
+    }
 }

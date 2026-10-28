@@ -72,7 +72,7 @@ internal static class SelfUpdatePolicy
 }
 
 internal sealed record ReplacementRequest(string Origin, string Download, string OldHash, SelfUpdateManifest Manifest,
-    int AppPid, long AppStart, int LauncherPid, long LauncherStart, string ReadyEvent);
+    int AppPid, long AppStart, int LauncherPid, long LauncherStart, string ReadyEvent, string? JournalId = null);
 internal static class Replacement
 {
     internal static void Wait(int pid, long start, int milliseconds)
@@ -90,21 +90,28 @@ internal static class Replacement
         SelfUpdatePolicy.NoLinks(request.Origin); SelfUpdatePolicy.Verify(request.Download, request.Manifest);
         if (!SelfUpdatePolicy.Hash(request.Origin).Equals(request.OldHash, StringComparison.OrdinalIgnoreCase))
             throw new IOException("Original executable changed; replacement cancelled");
-        var workspace = Path.GetDirectoryName(request.Download)!;
-        if (!string.Equals(Path.GetPathRoot(workspace), Path.GetPathRoot(request.Origin), StringComparison.OrdinalIgnoreCase))
-            throw new IOException("Automatic replacement across volumes is unavailable; save the update manually. Original preserved.");
+        // File.Replace requires same-volume staging and backup. Download stays in user Cache;
+        // only our verified transaction files are temporarily created beside the target.
+        var workspace = Path.GetDirectoryName(request.Origin)!;
+        SelfUpdatePolicy.NoLinks(workspace);
         var stage = Path.Combine(workspace, "replace-" + Guid.NewGuid().ToString("N") + ".exe");
         var backup = Path.Combine(workspace, "rollback-" + Guid.NewGuid().ToString("N") + ".exe");
         try
         {
             File.Copy(request.Download, stage, false);
             SelfUpdatePolicy.Verify(stage, request.Manifest);
+            if (!SelfUpdatePolicy.Hash(request.Origin).Equals(request.OldHash, StringComparison.OrdinalIgnoreCase))
+                throw new IOException("Original changed during preparation; replacement cancelled");
             File.Replace(stage, request.Origin, backup);
             if (!SelfUpdatePolicy.Hash(backup).Equals(request.OldHash, StringComparison.OrdinalIgnoreCase))
-                throw new IOException("Rollback hash mismatch; backup retained");
+                throw new IOException("Rollback hash mismatch; recovery file retained: " + backup);
             return backup;
         }
-        finally { if (File.Exists(stage)) File.Delete(stage); }
+        finally
+        {
+            // Do not mask replacement failures or delete rollback evidence.
+            try { if (File.Exists(stage)) File.Delete(stage); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        }
     }
     internal static void Rollback(string origin, string backup, string oldHash, string newHash)
     {

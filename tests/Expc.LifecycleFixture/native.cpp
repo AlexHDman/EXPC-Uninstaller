@@ -1,6 +1,7 @@
 #include "../../src/Expc.PortableLauncher/common.h"
 #include "../../src/Expc.PortableLauncher/instance.h"
 int wmain(int argc,wchar_t** argv){
+ wchar_t noack[8];if(GetEnvironmentVariableW(L"EXPC_FIXTURE_NO_ACK",noack,8))return 0;
  if(argc==2 && wcscmp(argv[1],L"ack")==0)return 0;
  wchar_t event[256];
  if(GetEnvironmentVariableW(L"EXPC_UPDATE_READY",event,256)){

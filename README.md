@@ -52,3 +52,9 @@ Release metadata is generated beside verification evidence, not beside dist/EXPC
 ## Локальный кандидат 6.3.3 — актуальное поведение
 
 Постоянные данные теперь в `%LOCALAPPDATA%\EXPC\Uninstaller\Data`. Описания записи рядом с EXE выше относятся к прежним версиям. Старые данные из папки запуска копируются с проверкой хеша, без удаления оригиналов и без перезаписи существующего профиля. Трей удалён; крестик закрывает приложение, активная операция защищена предупреждением. Самообновление не создаёт соседние файлы: для другого тома требуется ручная замена. См. [отчёт](docs/EXPC_USER_PROFILE_6.3.3.md).
+
+### EXPC 6.3.4 self-update
+
+Self-update now displays download progress and a short localized summary. Explicit update stage logs are stored in `%LOCALAPPDATA%\EXPC\Uninstaller\Logs`; startup metrics remain disabled by default. Download uses Cache; atomic replacement temporarily creates verified staging/rollback files beside the target EXE, including when Cache is on another volume. Recovery files may remain after failure. Permanent user data remains under Data. Real two-volume/GUI update acceptance is not claimed; see docs/EXPC_SELF_UPDATE_6.3.4.md.
+
+If dist is locked after a successful build, close the owning app manually and run `python scripts/Promote-ExpcCandidate.py <artifacts/verification/build-id>` to retry the verified final replacement without rebuilding. No application is launched by this command.

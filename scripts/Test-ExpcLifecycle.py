@@ -11,7 +11,7 @@ def run(args,timeout=120):
  return p
 vswhere=Path(os.environ['ProgramFiles(x86)'])/'Microsoft Visual Studio/Installer/vswhere.exe'
 vs=run([str(vswhere),'-latest','-products','*','-property','installationPath']).stdout.decode().strip()
-cmd=O/'compile.cmd';cmd.write_text(f'@call "{vs}\\VC\\Auxiliary\\Build\\vcvars64.bat" >nul\n@rc /nologo /fo "{O}\\fixture.res" "{R}\\tests\\Expc.LifecycleFixture\\fixture.rc"\n@if errorlevel 1 exit /b %errorlevel%\n@cl /nologo /MT /EHsc /std:c++20 /utf-8 "{R}\\tests\\Expc.LifecycleFixture\\native.cpp" /Fo"{O}\\native.obj" /link /OUT:"{O}\\native.exe" "{O}\\fixture.res" bcrypt.lib advapi32.lib user32.lib\n@exit /b %errorlevel%\n')
+cmd=O/'compile.cmd';cmd.write_text(f'@call "{vs}\\VC\\Auxiliary\\Build\\vcvars64.bat" >nul\n@rc /nologo /fo "{O}\\fixture.res" "{R}\\tests\\Expc.LifecycleFixture\\fixture.rc"\n@if errorlevel 1 exit /b %errorlevel%\n@cl /nologo /MT /EHsc /std:c++20 /utf-8 "{R}\\tests\\Expc.LifecycleFixture\\native.cpp" /Fo"{O}\\native.obj" /link /SUBSYSTEM:WINDOWS /ENTRY:wmainCRTStartup /OUT:"{O}\\native.exe" "{O}\\fixture.res" bcrypt.lib advapi32.lib user32.lib\n@exit /b %errorlevel%\n')
 run(['cmd','/d','/c',str(cmd)])
 run(['dotnet','build',str(R/'tests/Expc.LifecycleFixture/Expc.LifecycleFixture.csproj'),'-c','Release','-o',str(O/'managed'),'--nologo'])
 managed=['dotnet',str(O/'managed/Expc.LifecycleFixture.dll')];native=[str(O/'native.exe')]

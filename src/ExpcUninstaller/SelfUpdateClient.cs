@@ -5,18 +5,34 @@ using System.Text.Json;
 
 namespace ExpcUninstaller;
 
-internal sealed record SelfRelease(SelfUpdateManifest Manifest, string Notes);
+internal sealed record SelfRelease(SelfUpdateManifest Manifest, string Notes)
+{
+    internal string[] Summary(string language)
+    {
+        var marker = "<!-- expc-summary:" + (language == "ru" ? "ru" : "en") + " -->";
+        var start = Notes.IndexOf(marker, StringComparison.Ordinal);
+        if (start < 0) return [];
+        start += marker.Length;
+        var end = Notes.IndexOf("<!-- /expc-summary -->", start, StringComparison.Ordinal);
+        if (end < 0) return [];
+        return Notes[start..end].Split('\n').Select(x => x.Trim()).Where(x => x.StartsWith("- "))
+            .Select(x => x[2..]).Where(x => x.Length is > 0 and <= 160 && !x.Any(char.IsControl)).Take(3).ToArray();
+    }
+}
+internal sealed record UpdateProgress(string Stage, long Bytes = 0, long Total = 0);
 internal sealed class SelfUpdateClient : IDisposable
 {
     private readonly HttpClient client;
-    internal SelfUpdateClient(HttpMessageHandler? handler = null)
+    private readonly TimeSpan idleTimeout;
+    internal SelfUpdateClient(HttpMessageHandler? handler = null, TimeSpan? idleTimeout = null)
     {
+        this.idleTimeout = idleTimeout ?? TimeSpan.FromSeconds(20);
         client = new HttpClient(handler ?? new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(90) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd("EXPCdelete/" + Current);
         client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
     }
     internal static Version Current => new(typeof(SelfUpdateClient).Assembly.GetName().Version!.ToString(3));
-    private async Task<byte[]> Fetch(Uri url, int limit, CancellationToken token)
+    private async Task<byte[]> Fetch(Uri url, int limit, CancellationToken token, IProgress<UpdateProgress>? progress = null)
     {
         // ResponseHeadersRead does not apply HttpClient.Timeout to the response body.
         // Bound the complete redirect/body chain too, including a stalled download.
@@ -28,15 +44,26 @@ internal sealed class SelfUpdateClient : IDisposable
             if (url.Scheme != "https" || !string.IsNullOrEmpty(url.UserInfo) || url.Port != 443 ||
                 url.Host is not ("api.github.com" or "github.com" or "release-assets.githubusercontent.com" or "objects.githubusercontent.com"))
                 throw new InvalidDataException("Untrusted update URL");
-            using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, token);
+            using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
             if ((int)response.StatusCode is 301 or 302 or 303 or 307 or 308)
             { url = new Uri(url, response.Headers.Location ?? throw new IOException("Missing redirect")); continue; }
             response.EnsureSuccessStatusCode(); // Includes offline/rate limit; never translates to up-to-date.
             if (response.Content.Headers.ContentLength > limit) throw new InvalidDataException("Update response too large");
-            await using var input = await response.Content.ReadAsStreamAsync(token);
+            await using var input = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
             using var output = new MemoryStream(); var buffer = new byte[65536]; int count;
-            while ((count = await input.ReadAsync(buffer, token)) > 0)
-            { if (output.Length + count > limit) throw new InvalidDataException("Update response too large"); await output.WriteAsync(buffer.AsMemory(0, count), token); }
+            progress?.Report(new("download", 0, limit));
+            while (true)
+            {
+                using var idle = CancellationTokenSource.CreateLinkedTokenSource(token);
+                idle.CancelAfter(idleTimeout);
+                try { count = await input.ReadAsync(buffer, idle.Token).ConfigureAwait(false); }
+                catch (OperationCanceledException) when (!token.IsCancellationRequested)
+                { throw new TimeoutException("Download stalled: no data received for 20 seconds"); }
+                if (count == 0) break;
+                if (output.Length + count > limit) throw new InvalidDataException("Update response too large");
+                output.Write(buffer, 0, count);
+                progress?.Report(new("download", output.Length, limit));
+            }
             return output.ToArray();
         }
         throw new IOException("Too many redirects");
@@ -69,16 +96,24 @@ internal sealed class SelfUpdateClient : IDisposable
         }
         return null;
     }
-    internal async Task<string> Download(SelfUpdateManifest manifest, CancellationToken token)
+    internal async Task<string> Download(SelfUpdateManifest manifest, CancellationToken token, IProgress<UpdateProgress>? progress = null, string? testCache = null, UpdateJournal? journal = null)
     {
         SelfUpdatePolicy.Validate(manifest);
-        var root = Path.Combine(RuntimeStorage.UpdateCache, Guid.NewGuid().ToString("N"));
+        var root = Path.Combine(testCache ?? RuntimeStorage.UpdateCache, Guid.NewGuid().ToString("N"));
         SelfUpdatePolicy.NoLinks(root); Directory.CreateDirectory(root);
         var path = Path.Combine(root, "EXPCdelete.exe");
-        var bytes = await Fetch(SelfUpdatePolicy.AssetUri(manifest.Version, manifest.Asset), (int)manifest.Bytes, token);
-        await File.WriteAllBytesAsync(path, bytes, token);
-        SelfUpdatePolicy.Verify(path, manifest);
-        return path;
+        try
+        {
+            var bytes = await Fetch(SelfUpdatePolicy.AssetUri(manifest.Version, manifest.Asset), (int)manifest.Bytes, token, progress).ConfigureAwait(false);
+            journal?.Write("download-complete");
+            journal?.Write("candidate-verification");
+            progress?.Report(new("verify", bytes.Length, manifest.Bytes));
+            await File.WriteAllBytesAsync(path, bytes, token).ConfigureAwait(false);
+            await Task.Run(() => SelfUpdatePolicy.Verify(path, manifest), token).ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
+            return path;
+        }
+        catch { if (File.Exists(path)) File.Delete(path); throw; }
     }
     public void Dispose() => client.Dispose();
 }

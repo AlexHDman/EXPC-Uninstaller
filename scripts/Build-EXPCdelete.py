@@ -109,7 +109,14 @@ try:
   if not backup.exists():shutil.copy2(D,backup)
   assert sha(backup)==old
  # Same-volume atomic replacement only after all gates; the old EXE survives any earlier failure.
- temp=D.with_suffix('.new');assert not temp.exists();shutil.copy2(artifact,temp);assert sha(temp)==manifest['sha256'];os.replace(temp,D)
+ temp=D.with_suffix('.new')
+ if temp.exists():assert sha(temp)==manifest['sha256'],'Pending different candidate retained; use Promote-ExpcCandidate.py with its receipt'
+ else:shutil.copy2(artifact,temp)
+ assert sha(temp)==manifest['sha256']
+ try:os.replace(temp,D)
+ except PermissionError:
+  print('dist locked; verified .new retained. Retry: python scripts/Promote-ExpcCandidate.py '+str(V),flush=True)
+  raise
  print(json.dumps(manifest,indent=2),flush=True)
 finally:
  if owns_stage and S.exists():OWNER.write_text(json.dumps({str(p.relative_to(S)):sha(p) for p in S.rglob('*') if p.is_file()},indent=2),encoding='utf-8')

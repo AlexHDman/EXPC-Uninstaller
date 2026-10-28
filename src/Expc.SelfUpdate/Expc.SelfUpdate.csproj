@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <Import Project="../../EXPC.Version.props" />
   <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0-windows</TargetFramework><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><UseAppHost>false</UseAppHost></PropertyGroup>
-  <ItemGroup><Compile Include="../ExpcUninstaller/SelfUpdatePolicy.cs" Link="SelfUpdatePolicy.cs" /></ItemGroup>
+  <ItemGroup><Compile Include="../ExpcUninstaller/SelfUpdatePolicy.cs" Link="SelfUpdatePolicy.cs" /><Compile Include="../ExpcUninstaller/RuntimeStorage.cs" Link="RuntimeStorage.cs" /><Compile Include="../ExpcUninstaller/UpdateJournal.cs" Link="UpdateJournal.cs" /><Compile Include="../ExpcUninstaller/InstanceSession.cs" Link="InstanceSession.cs" /></ItemGroup>
 </Project>
