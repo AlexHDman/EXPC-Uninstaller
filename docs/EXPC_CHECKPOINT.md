@@ -1,11 +1,16 @@
-# EXPC checkpoint — 6.3.4 release preparation
+# EXPC checkpoint — 6.3.4 published
 
-EXPC Uninstaller | stabilization for approved self-update task | development active only within this task | Codex Windows CLI, model/effort not exposed | C:/AI/EXPC-Uninstaller | codex/release-6.3.4, base 766bd206.
+STATUS: active user testing / bug collection; functional development paused.
+Agent: Codex, Windows terminal; model/effort not exposed. Project C:/AI/EXPC-Uninstaller.
 
-User authorizes commit/push/new tag/draft-to-stable 6.3.4 in AlexHDman/EXPC-Uninstaller only. Preserve 6.3.3. No GUI/desktop control, no installed application changes. User assets and unrelated worktree files preserved.
+Branch codex/release-6.3.4. Producer commit 902ab8caa006e488e04161ae61fe1a5b56c83cb1; immutable tag v6.3.4 points to the clean exact-commit build. Documentation-only follow-up records publication; no tag change.
 
-Implementation and limits: EXPC_SELF_UPDATE_6.3.4.md. Exact old 6.3.2 network/verify and helper fixture passed, but user's GUI stall cause UNKNOWN. One manual replacement recommended for the stalled old client. New progress/handoff/journal and target-volume staging are implemented; cross-volume LIVE and full GUI update NOT TESTED.
+Release stable/latest: https://github.com/AlexHDman/EXPC-Uninstaller/releases/tag/v6.3.4
+Local dist/EXPCdelete.exe: 9,371,648 bytes; SHA256 c14340d28efa4e4c5efcec1ecb5710888b8ab142e4f8676286ef64ec1147db2f.
+Receipts: artifacts/verification/release-6.3.4. Detailed investigation/results: EXPC_SELF_UPDATE_6.3.4.md.
 
-Final producer must be clean exact commit. Artifact dist/EXPCdelete.exe; receipts artifacts/verification/release-6.3.4. Build pwsh -NoProfile -File scripts/Build-EXPCdelete.ps1; if dist locked, verified promotion retry via scripts/Promote-ExpcCandidate.py.
+Implemented: localized concise update window/progress; bounded acknowledged/committed helper handoff; persistent explicit-update Logs; target-volume staging with rollback; verified dist promotion retry. Data/Cache/Logs, metrics off, no tray and active-operation protection retained. Removal and leftovers unchanged.
 
-After handoff: active user testing / bug collection; functional development paused. No final EXE auto-launch.
+122/122 clean-build tests, native/version/payload gates; exact helper private-file fault/retry tests; 23/23 targeted regression/nonshown close checks. Draft/public assets verified; production 6.3.4 download verified in 5.59 s and exact old 6.3.2 component in 5.63 s. Original reported GUI stall cause UNKNOWN. Actual GUI end-to-end, real two-volume replacement and user migration LIVE NOT TESTED.
+
+User assets/dirty files preserved; prior published releases unchanged. No final GUI launch. NEXT: one manual replacement of the stalled 6.3.2, then user acceptance. No further implementation/publication without task scope.

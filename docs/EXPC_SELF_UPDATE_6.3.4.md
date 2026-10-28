@@ -36,3 +36,18 @@ Static wait graph: native launcher waits only its managed child; helper waits th
 Actual user GUI end-to-end, focus/tray/DPI, real user vault migration, actual replacement between two distinct filesystem volumes, and mixed-elevation/session LIVE acceptance. No isolated interactive environment was available/used. Different-directory staging is tested; it is not a two-volume test. User programs were not installed, updated or removed.
 
 Final exact-commit build, tag, release, hashes and public asset receipts are recorded in artifacts/verification/release-6.3.4 and the post-publication checkpoint. Any earlier dirty-candidate hash is not the released artifact. Next: user manual acceptance; functional development returns to pause after handoff.
+
+## Final publication result
+
+- Stable/latest release: https://github.com/AlexHDman/EXPC-Uninstaller/releases/tag/v6.3.4
+- EXE: https://github.com/AlexHDman/EXPC-Uninstaller/releases/download/v6.3.4/EXPCdelete.exe
+- Producer 902ab8caa006e488e04161ae61fe1a5b56c83cb1, immutable tag v6.3.4; documentation-only follow-up does not move the tag.
+- Local dist/EXPCdelete.exe: 9,371,648 bytes, SHA256 c14340d28efa4e4c5efcec1ecb5710888b8ab142e4f8676286ef64ec1147db2f.
+- Clean exact-commit build: build/release-6.3.4-source/artifacts/verification/20261028-204949. 122/122 selected tests, native policy/version/payload gates passed; 33 payload files, personal-data markers not found. Separate targeted regression/offscreen close run: 23/23.
+- Exact packaged helper SHA256 d43e9174bca262ff0c6be48d05f2bf4a4aad6bdda32c906baf1c1f36487bd748 passed failure/retry/handoff scenarios in artifacts/verification/selfupdate-20261028-205111. Fixture journals were copied into project evidence and only their exact files/notification removed; no fake test outcome left for the user.
+- Draft assets downloaded and matched BEFORE stable publication. Public GitHub latest/API/assets then verified without token; EXE/manifest/SHA256 match local files.
+- Exact-commit production client check: current=release=6.3.4, older requires update, newer is not downgraded. Production Download/Verify: 5.59 seconds, expected bytes/hash; RU/EN summaries each contain three items.
+- Exact old 6.3.2 component also downloaded/verified published 6.3.4 in 5.63 seconds. Old DLL/helper hashes match the preserved 6.3.2 payload receipt. This remains component evidence, NOT GUI acceptance.
+- Published 6.3.3 remains unchanged. No merge/force push, no GUI EXE auto-launch, no installed application changes. User Visual Master hash unchanged; unrelated files left uncommitted.
+
+STATUS: published, automated/component checks passed; original GUI incident cause UNKNOWN; GUI and actual distinct-volume replacement NOT TESTED. NEXT: close the stalled 6.3.2 and manually replace that EXE once with 6.3.4. Active user testing / bug collection; functional development paused.
