@@ -89,7 +89,7 @@ try:
  (S/'policy.cmd').write_text(policycmd,encoding='utf-8')
  run('policy-build',['cmd.exe','/d','/c',str(S/'policy.cmd')],120)
  run('policy-test',[str(policy)],30)
- tests='|'.join('FullyQualifiedName~'+x for x in ['CatalogTests','ActionTests','UpdateTests','VersionTests','VaultTests','WindowPlacementTests','PackagingTests','SelfUpdateTests'])
+ tests='|'.join('FullyQualifiedName~'+x for x in ['CatalogTests','ActionTests','UpdateTests','VersionTests','VaultTests','WindowPlacementTests','PackagingTests','SelfUpdateTests','RuntimeStorageTests'])
  run('tests',[dotnet,'test',str(R/'tests/ExpcUninstallerTests/ExpcUninstallerTests.csproj'),'-c','Release','-p:Platform=x64','-p:RestoreSources=https://api.nuget.org/v3/index.json','--filter',tests,'--logger','trx;LogFileName=safe-tests.trx','--results-directory',str(V),'--nologo'])
  run('inspect',['python','-X','utf8',str(R/'scripts/Inspect-ExpcPayload.py'),str(S)])
  for name,p in [('payload-manifest.json',pack/'manifest.json'),('inspection.json',S/'inspection.json')]:shutil.copy2(p,V/name)

@@ -177,5 +177,7 @@
   "Provider_github": "GitHub Releases",
   "Provider_winget": "WinGet",
   "Provider_manual": "Manual check",
-  "SelfUpdate": "Update application"
+  "SelfUpdate": "Update application",
+  "UserDataImportFailed": "Could not import EXPC data into the user profile. Original files have been retained.",
+  "UserDataReadOnly": "The EXPC user-profile data directory is not writable."
 }

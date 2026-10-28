@@ -158,14 +158,13 @@ internal sealed partial class MainWindow
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
         SavePlacement();
-        if (_operationBusy)
+        if (_operationBusy && (_operationDialog == null || _operationDialog.Running))
         {
             e.Cancel = true;
             Dialogs.Show(this, L.T("OperationActive"));
             return;
         }
         _lifetime.Cancel();
-        if (_tray != null) _tray.Visible = false;
         _vault.Lock();
         _versionCancellation?.Cancel();
         SavePreferences();

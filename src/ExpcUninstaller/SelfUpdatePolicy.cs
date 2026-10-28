@@ -90,8 +90,11 @@ internal static class Replacement
         SelfUpdatePolicy.NoLinks(request.Origin); SelfUpdatePolicy.Verify(request.Download, request.Manifest);
         if (!SelfUpdatePolicy.Hash(request.Origin).Equals(request.OldHash, StringComparison.OrdinalIgnoreCase))
             throw new IOException("Original executable changed; replacement cancelled");
-        var stage = request.Origin + ".expc-new-" + Guid.NewGuid().ToString("N");
-        var backup = request.Origin + ".expc-rollback-" + Guid.NewGuid().ToString("N");
+        var workspace = Path.GetDirectoryName(request.Download)!;
+        if (!string.Equals(Path.GetPathRoot(workspace), Path.GetPathRoot(request.Origin), StringComparison.OrdinalIgnoreCase))
+            throw new IOException("Automatic replacement across volumes is unavailable; save the update manually. Original preserved.");
+        var stage = Path.Combine(workspace, "replace-" + Guid.NewGuid().ToString("N") + ".exe");
+        var backup = Path.Combine(workspace, "rollback-" + Guid.NewGuid().ToString("N") + ".exe");
         try
         {
             File.Copy(request.Download, stage, false);

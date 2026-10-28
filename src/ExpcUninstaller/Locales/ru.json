@@ -177,5 +177,7 @@
   "Provider_github": "GitHub Releases",
   "Provider_winget": "WinGet",
   "Provider_manual": "Проверить вручную",
-  "SelfUpdate": "Обновить программу"
+  "SelfUpdate": "Обновить программу",
+  "UserDataImportFailed": "Не удалось перенести данные EXPC в профиль пользователя. Исходные файлы сохранены.",
+  "UserDataReadOnly": "Каталог данных EXPC в профиле пользователя недоступен для записи."
 }

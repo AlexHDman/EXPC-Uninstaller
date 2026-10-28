@@ -12,7 +12,7 @@ internal sealed partial class MainWindow
         if (string.IsNullOrEmpty(result)) return;
         try
         {
-            var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EXPC", "SelfUpdate") + Path.DirectorySeparatorChar;
+            var root = RuntimeStorage.UpdateCache + Path.DirectorySeparatorChar;
             if (!Path.GetFullPath(result).StartsWith(root, StringComparison.OrdinalIgnoreCase)) return;
             SelfUpdatePolicy.NoLinks(result);
             if (new FileInfo(result).Length < 16384) OperationStatus(L.T("SelfUpdate") + ": " + File.ReadAllText(result));
@@ -80,7 +80,7 @@ internal sealed class SelfUpdateWindow : Form
             lifetime.Token.ThrowIfCancellationRequested();
             if (busy()) throw new IOException(L.T("OperationActive"));
             // Probe permission only; no silent UAC or modifications to the existing executable.
-            var probe = origin + ".expc-access-" + Guid.NewGuid().ToString("N");
+            var probe = Path.Combine(Path.GetDirectoryName(download)!, ".expc-access-" + Guid.NewGuid().ToString("N"));
             try { using var stream = new FileStream(probe, FileMode.CreateNew, FileAccess.Write, FileShare.None, 1, FileOptions.DeleteOnClose); }
             catch (UnauthorizedAccessException) { throw new IOException(TextFor("Нет прав записи в папку EXE. Сохраните portable в доступной папке и повторите.", "No write access to the EXE folder. Move the portable to a writable folder and retry.")); }
             using var app = Process.GetCurrentProcess();

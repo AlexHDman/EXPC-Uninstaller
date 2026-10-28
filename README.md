@@ -44,3 +44,11 @@ Staging находится в build/staging. Повторный запуск у�
 Help → **Update application** checks stable EXPC releases only on request. Older binaries require one manual replacement. Close existing old instances first. Build and fixture evidence do not replace real GUI acceptance. See [6.3.1 report](docs/EXPC_RELEASE_6.3.1.md).
 
 Release metadata is generated beside verification evidence, not beside dist/EXPCdelete.exe: EXPCdelete.update.json and SHA256SUMS.txt. EXPC.Version.props is the version source. No independent EXPC installer is built.
+
+## Локальный кандидат 6.3.2: кэш и диагностика
+
+Распаковка и staging самообновления используют `%LOCALAPPDATA%\EXPC\Uninstaller\Cache`. Метрики по умолчанию выключены; для явной диагностики перед ручным запуском установите переменную процесса `EXPC_DIAGNOSTICS=1`. Файл будет в `%LOCALAPPDATA%\EXPC\Uninstaller\Logs\startup-metrics.jsonl`, без fallback рядом с EXE. Постоянные local-data/vault и обязательный журнал операций этим изменением не переносятся. Старые файлы автоматически не удаляются. См. [отчёт](docs/EXPC_CACHE_DIAGNOSTICS_6.3.2.md). Новый релиз не опубликован.
+
+## Локальный кандидат 6.3.3 — актуальное поведение
+
+Постоянные данные теперь в `%LOCALAPPDATA%\EXPC\Uninstaller\Data`. Описания записи рядом с EXE выше относятся к прежним версиям. Старые данные из папки запуска копируются с проверкой хеша, без удаления оригиналов и без перезаписи существующего профиля. Трей удалён; крестик закрывает приложение, активная операция защищена предупреждением. Самообновление не создаёт соседние файлы: для другого тома требуется ручная замена. См. [отчёт](docs/EXPC_USER_PROFILE_6.3.3.md).

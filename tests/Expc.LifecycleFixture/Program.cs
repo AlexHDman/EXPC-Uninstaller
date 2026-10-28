@@ -6,7 +6,7 @@ if (args[0] == "check-public")
     using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
     var release = client.Check(timeout.Token).GetAwaiter().GetResult() ?? throw new Exception("Release unavailable");
     var v = SelfUpdatePolicy.ParseVersion(release.Manifest.Version);
-    Console.WriteLine(JsonSerializer.Serialize(new { version=release.Manifest.Version, current=SelfUpdateClient.Current.ToString(), equal=v==SelfUpdateClient.Current, olderNeedsUpdate=v>new Version(6,3,0), newerNoDowngrade=v<new Version(6,3,2) }));
+    Console.WriteLine(JsonSerializer.Serialize(new { version=release.Manifest.Version, current=SelfUpdateClient.Current.ToString(), equal=v==SelfUpdateClient.Current, olderNeedsUpdate=v>new Version(v.Major,v.Minor,Math.Max(0,v.Build-1)), newerNoDowngrade=v<new Version(v.Major,v.Minor,v.Build+1) }));
     return 0;
 }
 if (args[0] == "swap")

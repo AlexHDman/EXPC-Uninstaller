@@ -53,7 +53,7 @@ internal sealed partial class MainWindow : Form
 
     public MainWindow(SecretVault? vault = null)
     {
-        _vault = vault ?? new SecretVault(Path.Combine(PortablePaths.Root, "accounts.expc-vault"));
+        _vault = vault ?? new SecretVault(Path.Combine(RuntimeStorage.Data, "accounts.expc-vault"));
         using var iconStream = Assembly.GetExecutingAssembly().GetManifestResourceStream("Expc.Icon.ico")!;
         _applicationIcon = new Icon(iconStream, 32, 32);
         Icon = _applicationIcon;
@@ -565,7 +565,6 @@ internal sealed partial class MainWindow : Form
             _lifetime.Cancel();
             _vault.StateChanged -= VaultStateChanged;
             _vault.Dispose();
-            if (_tray != null) { _tray.Visible = false; _tray.ContextMenuStrip?.Dispose(); _tray.Dispose(); }
             foreach (var icon in _icons.Values) icon?.Dispose();
             _fallbackIcon.Dispose(); DisposeMenuImages(_menu.Items); if (_context != null) DisposeMenuImages(_context.Items);
             _applicationIcon.Dispose();

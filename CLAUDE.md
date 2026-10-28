@@ -11,3 +11,5 @@ Read C:\AI\AGENTS.md, C:\AI\CLAUDE.md and C:\AI\EXPC_DEVELOPMENT_PROTOCOL.md bef
 - Keep original graphics and upstream attribution. No functional fixes during this restructuring/testing pause. Maintain checkpoint/backlog, distinguishing unit checks from GUI/live acceptance.
 
 Release 6.3.1 exception: user explicitly authorizes scoped self-update/lifecycle implementation, commit/push/tag and draft-to-stable GitHub Release in AlexHDman/EXPC-Uninstaller only, after gates. No upstream writes, merge, force push or desktop control. After handoff return to active user testing / functional development paused. See docs/EXPC_RELEASE_6.3.1.md.
+
+Release 6.3.3 exception (2026-10-28): user explicitly authorized commit, push and a stable GitHub Release for the approved profile-data/cache/no-tray changes. Own repository only, clean exact-commit build, draft asset verification before stable/latest. Do not modify existing tags/releases. No desktop control or automatic EXE launch.

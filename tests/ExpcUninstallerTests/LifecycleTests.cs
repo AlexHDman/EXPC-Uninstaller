@@ -19,7 +19,7 @@ public sealed class LifecycleTests
         Sta(() =>
         {
             var before = PortableData.DirectoryPath;
-            PortableData.DirectoryPath = Path.Combine(Path.GetTempPath(), "EXPC-lifecycle-" + Guid.NewGuid().ToString("N"));
+            PortableData.DirectoryPath = Path.Combine(AppContext.BaseDirectory, "EXPC-lifecycle-" + Guid.NewGuid().ToString("N"));
             try
             {
                 using var vault = new SecretVault(Path.Combine(PortableData.DirectoryPath, "fixture.vault"));
@@ -28,6 +28,7 @@ public sealed class LifecycleTests
                 var close = new System.Windows.Forms.FormClosingEventArgs(System.Windows.Forms.CloseReason.UserClosing, false);
                 typeof(MainWindow).GetMethod("OnFormClosing", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(form, [close]);
                 Assert.IsFalse(close.Cancel); Assert.IsFalse(vault.Unlocked);
+                Assert.IsFalse(typeof(MainWindow).GetFields(BindingFlags.NonPublic | BindingFlags.Instance).Any(f => f.FieldType == typeof(System.Windows.Forms.NotifyIcon)));
             }
             finally { PortableData.DirectoryPath = before; }
         });

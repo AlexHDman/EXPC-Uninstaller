@@ -72,7 +72,7 @@ internal sealed class SelfUpdateClient : IDisposable
     internal async Task<string> Download(SelfUpdateManifest manifest, CancellationToken token)
     {
         SelfUpdatePolicy.Validate(manifest);
-        var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "EXPC", "SelfUpdate", Guid.NewGuid().ToString("N"));
+        var root = Path.Combine(RuntimeStorage.UpdateCache, Guid.NewGuid().ToString("N"));
         SelfUpdatePolicy.NoLinks(root); Directory.CreateDirectory(root);
         var path = Path.Combine(root, "EXPCdelete.exe");
         var bytes = await Fetch(SelfUpdatePolicy.AssetUri(manifest.Version, manifest.Asset), (int)manifest.Bytes, token);

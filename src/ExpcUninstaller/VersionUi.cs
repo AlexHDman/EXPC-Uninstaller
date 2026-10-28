@@ -171,7 +171,7 @@ internal sealed partial class MainWindow
         string[] captions = [UiText.Minimize, UiText.Maximize, UiText.Close];
         for (var i = 0; i < 3; i++) { _tips.SetToolTip(_caption[i], captions[i]); _caption[i].AccessibleName = captions[i]; }
         _retryLeftovers.Text = L.T("RetryLeftovers");
-        _status = UiText.Ready; RefreshMenus(); RefreshTray(); LayoutShell(); ApplyView(); Invalidate(true);
+        _status = UiText.Ready; RefreshMenus(); LayoutShell(); ApplyView(); Invalidate(true);
     }
     private void RefreshMenus()
     {

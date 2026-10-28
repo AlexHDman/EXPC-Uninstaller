@@ -3,33 +3,21 @@ namespace ExpcUninstaller;
 internal sealed partial class MainWindow
 {
     private readonly SecretVault _vault;
-    private NotifyIcon? _tray;
     private GlassButton _lock = null!;
     private void InitializeVault()
     {
         _vault.StateChanged += VaultStateChanged;
-        _tray = new NotifyIcon { Icon = _applicationIcon, Text = UiText.Title, Visible = true };
-        _tray.DoubleClick += (_, _) => RestoreWindow();
         VaultStateChanged();
     }
     private void RestoreWindow() { Show(); WindowState = FormWindowState.Normal; Activate(); }
     private void ExitApplication() => Close();
     internal void ActivateExisting() { if (!_lifetime.IsCancellationRequested) RestoreWindow(); }
-    private void RefreshTray()
-    {
-        if (_tray == null) return;
-        var old = _tray.ContextMenuStrip;
-        var menu = new ContextMenuStrip { Renderer = new GlassRenderer() };
-        menu.Items.Add(UiText.Title, null, (_, _) => RestoreWindow());
-        menu.Items.Add(L.T(_vault.Unlocked ? "LockVault" : "UnlockVault"), null, (_, _) => { RestoreWindow(); ToggleVault(); });
-        menu.Items.Add(UiText.Exit, null, (_, _) => ExitApplication()); _tray.ContextMenuStrip = menu; old?.Dispose();
-    }
     private void VaultStateChanged()
     {
         if (IsDisposed) return;
         if (InvokeRequired) { BeginInvoke(VaultStateChanged); return; }
         _lock.Selected = _vault.Unlocked; _lock.Glyph = _vault.Unlocked ? Glyph.Unlocked : Glyph.Lock;
-        _tips.SetToolTip(_lock, L.T(_vault.Unlocked ? "LockVault" : "UnlockVault")); _lock.Invalidate(); RefreshTray();
+        _tips.SetToolTip(_lock, L.T(_vault.Unlocked ? "LockVault" : "UnlockVault")); _lock.Invalidate();
     }
     private void ToggleVault()
     {

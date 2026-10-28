@@ -14,22 +14,14 @@ internal static class Program
     {
         using var instance = new InstanceSession();
         if (!instance.Primary) return;
+        L.Select(PortableData.LanguageFor("", CultureInfo.InstalledUICulture));
+        try { UserDataMigration.Ensure(PortablePaths.LegacyRoot, RuntimeStorage.Data); }
+        catch (Exception ex) { MessageBox.Show(L.T("UserDataImportFailed") + "\n" + ex.Message); return; }
         L.Select(PortableData.LanguageFor(Settings.Language, CultureInfo.InstalledUICulture));
         if (!string.IsNullOrEmpty(Settings.Language)) Settings.Language = L.Language;
         Theme.Select(Settings.Theme);
         try { PortablePaths.VerifyWritable(); }
-        catch (Exception ex) { MessageBox.Show(L.T("PortableReadOnly") + "\n" + PortablePaths.Root + "\n" + ex.Message, UiText.Title, MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
-        // Portable folder customization: fixed packaged file only; never touch the repository's desktop.ini.
-        try
-        {
-            var desktop = Path.Combine(AppContext.BaseDirectory, "desktop.ini");
-            if (File.Exists(desktop) && File.ReadAllText(desktop).Contains("IconResource=EXPC-Uninstaller.exe,0", StringComparison.Ordinal))
-            {
-                File.SetAttributes(desktop, File.GetAttributes(desktop) | FileAttributes.Hidden | FileAttributes.System);
-                File.SetAttributes(AppContext.BaseDirectory, File.GetAttributes(AppContext.BaseDirectory) | FileAttributes.ReadOnly);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        catch (Exception ex) { MessageBox.Show(L.T("UserDataReadOnly") + "\n" + PortablePaths.Root + "\n" + ex.Message, UiText.Title, MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
@@ -54,10 +46,10 @@ internal static class Measurements
     public static double SinceProcessStart => (DateTime.UtcNow - Started).TotalMilliseconds;
     public static void Record(string stage, int count = 0, double operationMs = 0, int errors = 0, int dpi = 0)
     {
-        try
+        DiagnosticLog.Append(DiagnosticLog.Enabled, RuntimeStorage.Logs, "startup-metrics.jsonl", () =>
         {
             // Aggregate measurements only. Never persist software names or registry contents.
-            var json = JsonSerializer.Serialize(new
+            return JsonSerializer.Serialize(new
             {
                 utc = DateTime.UtcNow,
                 pid = Environment.ProcessId,
@@ -70,8 +62,6 @@ internal static class Measurements
                 errors,
                 dpi
             });
-            File.AppendAllText(Path.Combine(PortablePaths.Root, "startup-metrics.jsonl"), json + Environment.NewLine);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* Read-only portable folder. */ }
+        });
     }
 }
